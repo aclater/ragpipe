@@ -126,6 +126,7 @@ Benchmarked against the legacy fastembed-based implementation with identical que
 | LRU chunk cache (2,048 entries) | 55% faster repeated queries (eliminates Postgres round-trip on cache hit) |
 | Persistent httpx client | Saves 1-5ms/request TCP handshake overhead |
 | Reranker min score threshold (-5) | Filters irrelevant chunks on adversarial/off-topic queries, saves prompt tokens |
+| Dual-path streaming audit | Streaming responses audited + validated post-hoc with zero latency impact |
 
 ## API
 
@@ -175,7 +176,7 @@ Response:
 
 ## Known issues
 
-- **Streaming audit gap**: Streaming responses (used by Open WebUI) bypass citation validation and audit logging because the full response text is never available for parsing. Non-streaming requests are fully validated.
+- **Streaming citation stripping**: Streaming responses are audited and validated post-hoc (dual-path accumulation), but invalid citations cannot be stripped because the text has already been delivered to the client. Invalid citations are logged as errors. Non-streaming requests strip invalid citations before delivery.
 - **Adversarial grounding**: Model sometimes cites documents to support a negative finding ("X is not mentioned in..."), which gets classified as `mixed` instead of `general`. This is a prompt tuning issue, not a code bug.
 
 ## Development

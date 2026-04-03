@@ -54,7 +54,7 @@ tests/
 - Default embedding model (qdrant/bge-base-en-v1.5-onnx-q) is pre-quantized
 
 ## Known issues
-- Streaming responses (Open WebUI) bypass citation validation and audit logging
+- Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
 - Adversarial queries can produce "mixed" grounding when model cites docs to support a negative finding — prompt tuning issue
 - sovereign_ai query regressed with min score threshold — only 2 chunks pass at -3.02, insufficient for grounding
 
@@ -66,6 +66,7 @@ tests/
 | LRU chunk cache (2,048 entries) | 55% faster repeated queries (eliminates Postgres round-trip on cache hit) |
 | Persistent httpx client | Saves 1-5ms/request TCP handshake overhead |
 | Reranker min score threshold (-5) | Filters irrelevant chunks, adversarial queries get clean empty context |
+| Dual-path streaming audit | Streaming responses now audited + validated post-hoc, zero latency impact |
 
 ## Running tests
 ```bash
