@@ -3,7 +3,7 @@
 FROM registry.access.redhat.com/ubi9/python-311@sha256:8fb94e142e1093b82ca64b334264a5da8e874567d64ce4b6d614f86da3e38813
 
 # Install the package
-COPY pyproject.toml /app/pyproject.toml
+COPY pyproject.toml README.md /app/
 COPY ragpipe/ /app/ragpipe/
 WORKDIR /app
 RUN pip install --no-cache-dir .
