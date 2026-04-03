@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ragpipe"
+version = "0.1.0"
+description = "RAG proxy with corpus-preferring grounding and citation validation"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "qdrant-client",
+    "fastembed",
+    "numpy",
+    "psycopg2-binary",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+ragpipe = "ragpipe.app:main"

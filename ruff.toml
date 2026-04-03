@@ -1,0 +1,35 @@
+# Ruff — linter + formatter for ragpipe
+# https://docs.astral.sh/ruff/
+
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "UP",    # pyupgrade (modern Python idioms)
+    "B",     # flake8-bugbear (common bugs)
+    "S",     # flake8-bandit (security)
+    "T20",   # flake8-print (no stray print())
+    "SIM",   # flake8-simplify
+    "RUF",   # Ruff-specific rules
+]
+ignore = [
+    "S101",  # assert in tests is fine
+    "S104",  # binding 0.0.0.0 is intentional — runs inside containers
+    "S108",  # /tmp paths are env-overridable defaults in containerized code
+    "S603",  # subprocess calls are intentional
+    "S607",  # partial executable path is acceptable
+    "S608",  # parameterized SQL with dynamic placeholders, not string injection
+]
+
+[lint.per-file-ignores]
+"tests/*.py" = ["S101", "T20"]
+"**/grounding.py" = ["E501"]  # system prompt is a long multi-line string
+
+[format]
+quote-style = "double"
+indent-style = "space"

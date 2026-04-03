@@ -1,0 +1,5 @@
+# Hadolint configuration
+ignored:
+  # DL3041: dnf version pinning — Fedora packages roll continuously,
+  # pinning creates maintenance burden without real reproducibility
+  - DL3041
