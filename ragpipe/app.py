@@ -365,6 +365,54 @@ def process_response(response_data: dict, ctx: dict) -> dict:
     return response_data
 
 
+def _validate_streamed_response(content: str, ctx: dict) -> None:
+    """Post-hoc validation for streamed responses.
+
+    Runs the same citation validation, grounding classification, and
+    audit logging as process_response, but without modifying the
+    response (which has already been sent to the client).
+
+    Invalid citations are logged as errors but cannot be stripped
+    from the already-delivered stream. The audit log captures the
+    grounding decision for observability and tuning.
+    """
+    user_query = ctx.get("user_query", "")
+    ranked = ctx.get("ranked", [])
+    retrieved_set = ctx.get("retrieved_set", set())
+    corpus_coverage = ctx.get("corpus_coverage", "none")
+
+    citations = parse_citations(content)
+    valid_citations, validation_errors = validate_citations(citations, retrieved_set, docstore)
+
+    if not citations:
+        citation_status = "pass"
+    elif validation_errors:
+        citation_status = "invalid"
+        q_hash = query_hash(user_query)
+        for err in validation_errors:
+            log.error(
+                "Invalid citation (streamed): query_hash=%s doc_id=%s chunk_id=%d reason=%s",
+                q_hash,
+                err["doc_id"],
+                err["chunk_id"],
+                err["reason"],
+            )
+    else:
+        citation_status = "pass"
+
+    metadata = build_metadata(content, valid_citations, corpus_coverage)
+
+    log_audit(
+        q_hash=query_hash(user_query),
+        retrieved_chunks=ranked,
+        ranked_chunks=ranked,
+        corpus_coverage=corpus_coverage,
+        grounding=metadata["grounding"],
+        valid_citations=valid_citations,
+        citation_validation=citation_status,
+    )
+
+
 def _format_perf_summary(timings: dict | None, usage: dict | None, ctx: dict) -> str:
     """Format a performance summary block appended to streaming responses."""
     parts = ["\n\n---\n📊 **Performance**\n"]
@@ -401,8 +449,13 @@ async def chat_completions(request: Request):
     stream = body.get("stream", False)
 
     if stream:
-        # Stream chunks through, capture the final chunk's timings/usage,
-        # and append a performance summary before [DONE].
+        # Dual-path streaming: forward chunks to the client immediately
+        # while accumulating the full response text in parallel. After
+        # the stream completes, run citation validation + grounding
+        # classification + audit logging on the accumulated text.
+        # Zero latency impact — the user sees tokens as they arrive.
+        accumulated_content = []
+
         async def stream_response():
             timings = None
             usage = None
@@ -437,11 +490,28 @@ async def chat_completions(request: Request):
                         if "usage" in chunk_data:
                             usage = chunk_data["usage"]
                         last_chunk_id = chunk_data.get("id", last_chunk_id)
+                        # Accumulate content deltas for post-stream validation
+                        delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                        text = delta.get("content")
+                        if text:
+                            accumulated_content.append(text)
                     except json.JSONDecodeError:
                         pass
                     yield raw + "\n\n"
 
-        return StreamingResponse(stream_response(), media_type="text/event-stream")
+        async def validate_after_stream(response: StreamingResponse) -> StreamingResponse:
+            """Wrap the streaming response to trigger post-hoc validation."""
+            async for chunk in response.body_iterator:
+                yield chunk
+            # Stream complete — run citation validation on accumulated text
+            full_content = "".join(accumulated_content)
+            if full_content:
+                _validate_streamed_response(full_content, retrieval_ctx)
+
+        return StreamingResponse(
+            validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
+            media_type="text/event-stream",
+        )
     else:
         resp = await _http_client.post(
             f"{MODEL_URL}/v1/chat/completions",
