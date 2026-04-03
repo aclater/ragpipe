@@ -61,8 +61,11 @@ embedder: Embedder = None
 docstore = None
 _collection_exists: bool = False
 
-# Thread pool for blocking I/O (embedder.encode, docstore, reranker)
+# Thread pool for blocking I/O (embedder.encode, reranker)
 _executor = ThreadPoolExecutor(max_workers=4)
+
+# Persistent httpx client — reuses TCP connections across requests
+_http_client: httpx.AsyncClient = None
 
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
@@ -71,8 +74,8 @@ app = FastAPI()
 
 
 @app.on_event("startup")
-def startup():
-    global qdrant, embedder, docstore, _collection_exists
+async def startup():
+    global qdrant, embedder, docstore, _collection_exists, _http_client
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
 
@@ -100,6 +103,12 @@ def startup():
     except Exception:
         log.warning("Reranker warm-up failed — will load on first request")
 
+    # Persistent httpx client — reuses TCP connections to the model
+    _http_client = httpx.AsyncClient(
+        timeout=300,
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    )
+
     log.info(
         "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d)",
         MODEL_URL,
@@ -109,7 +118,9 @@ def startup():
 
 
 @app.on_event("shutdown")
-def shutdown():
+async def shutdown():
+    if _http_client:
+        await _http_client.aclose()
     if qdrant:
         qdrant.close()
     log.info("Ragpipe shut down")
@@ -395,15 +406,12 @@ async def chat_completions(request: Request):
             timings = None
             usage = None
             last_chunk_id = None
-            async with (
-                httpx.AsyncClient(timeout=300) as client,
-                client.stream(
-                    "POST",
-                    f"{MODEL_URL}/v1/chat/completions",
-                    json=body,
-                    headers={"Content-Type": "application/json"},
-                ) as resp,
-            ):
+            async with _http_client.stream(
+                "POST",
+                f"{MODEL_URL}/v1/chat/completions",
+                json=body,
+                headers={"Content-Type": "application/json"},
+            ) as resp:
                 async for raw in resp.aiter_lines():
                     if not raw.startswith("data: "):
                         yield raw + "\n"
@@ -434,11 +442,10 @@ async def chat_completions(request: Request):
 
         return StreamingResponse(stream_response(), media_type="text/event-stream")
     else:
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{MODEL_URL}/v1/chat/completions",
-                json=body,
-            )
+        resp = await _http_client.post(
+            f"{MODEL_URL}/v1/chat/completions",
+            json=body,
+        )
         try:
             resp.raise_for_status()
             response_data = resp.json()
@@ -484,20 +491,19 @@ async def embeddings(request: Request):
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_passthrough(request: Request, path: str):
     """Pass through all other requests to the model unchanged."""
-    async with httpx.AsyncClient(timeout=300) as client:
-        body = await request.body()
-        resp = await client.request(
-            method=request.method,
-            url=f"{MODEL_URL}/{path}",
-            content=body,
-            headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
-        )
-        try:
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            log.error("Passthrough %s returned %d", path, e.response.status_code)
-            return JSONResponse({"error": str(e)}, status_code=e.response.status_code)
+    body = await request.body()
+    resp = await _http_client.request(
+        method=request.method,
+        url=f"{MODEL_URL}/{path}",
+        content=body,
+        headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+    )
+    try:
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        log.error("Passthrough %s returned %d", path, e.response.status_code)
+        return JSONResponse({"error": str(e)}, status_code=e.response.status_code)
 
 
 def main():
