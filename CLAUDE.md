@@ -1,12 +1,14 @@
 # ragpipe
 
-RAG proxy with corpus-preferring grounding and citation validation. Intercepts OpenAI-compatible chat completions, performs retrieval + reranking + context injection, then post-processes with citation validation and grounding classification.
+RAG proxy with semantic routing, corpus-preferring grounding, and citation validation. Routes queries to different LLMs and RAG backends based on semantic classification, keeping data classifications separate.
 
 ## Architecture
 ```
 POST /v1/chat/completions
+  → classify query semantically (cosine similarity, <1ms)
+  → select route → per-route LLM, Qdrant, docstore, system prompt
   → embed query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
-  → search Qdrant (top-K vectors, reference payloads only)
+  → search route's Qdrant (top-K vectors, reference payloads only)
   → hydrate chunk text from Postgres docstore (asyncpg pool, LRU cached)
   → rerank with cross-encoder (ONNX Runtime, MiniLM-L-6-v2)
   → filter chunks below RERANKER_MIN_SCORE (-5 default)
@@ -25,19 +27,24 @@ ragpipe/
   __init__.py      — public API + __version__
   __main__.py      — python -m ragpipe entry point
   app.py           — FastAPI app, request pipeline, endpoints, admin API
+  router.py        — SemanticRouter, RouteConfig, RoutePipeline, YAML config loader
   models.py        — ONNX Runtime Embedder + Reranker wrappers
   grounding.py     — system prompt (hot-reloadable), citation parsing/validation, audit
   reranker.py      — reranker stage with min score filtering
   docstore.py      — Postgres (asyncpg) / SQLite backends + CachedDocstore LRU wrapper
 tests/
   test_admin.py      — 4 tests (reload endpoint auth)
+  test_router.py     — 14 tests (config parsing, classification, pipeline lifecycle)
   test_grounding.py  — 36 tests (prompt, citations, grounding, negative findings, audit, reload)
   test_docstore.py   — 25 tests (backends + cache layer)
   test_reranker.py   — 12 tests (enabled/disabled/threshold/model swap)
   test_models.py     — 7 tests (embedder + reranker ONNX wrappers)
+examples/
+  routes-multi-host.yaml — cross-host routing config (harrison ↔ lennon)
 ```
 
 ## Key design decisions
+- Semantic router: cosine similarity on pre-embedded examples, <1ms classification, per-route LLM/Qdrant/docstore/prompt
 - ONNX Runtime directly (no fastembed) — 708 MB RSS vs 4.1 GB, 370ms startup
 - asyncpg connection pool (2-8 conns) for async hydration, psycopg2 retained for sync ingestion
 - LRU chunk cache (2,048 entries) — 55% faster repeated queries, invalidated on upsert/delete
@@ -56,6 +63,8 @@ tests/
 ## Known issues
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
 - LLM phrasing variance: negative finding classifier depends on recognizable negation patterns before the ⚠️ marker — when the model phrases differently, classification may vary between runs
+- /v1/models passthrough returns global upstream's model list, not routed model's
+- No upstream failover — route's LLM down → 502, no automatic fallback
 
 ## Performance history
 | Change | Impact |
@@ -67,11 +76,12 @@ tests/
 | Reranker min score threshold (-5) | Filters irrelevant chunks, adversarial queries get clean empty context |
 | Dual-path streaming audit | Streaming responses now audited + validated post-hoc, zero latency impact |
 | Negative finding classifier | Citations supporting "X is not mentioned" classified as general, not mixed |
+| Semantic router | <1ms query classification, cross-host routing verified harrison↔lennon |
 
 ## Running tests
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v    # 83 tests
+python -m pytest tests/ -v    # 97 tests
 ruff check && ruff format --check
 ```
 

@@ -1,20 +1,23 @@
 # ragpipe
 
-RAG proxy with corpus-preferring grounding and citation validation. Sits between your client and LLM, intercepts OpenAI-compatible chat completions, and enriches every query with retrieval-augmented context from a Qdrant vector database backed by a Postgres document store.
+RAG proxy with semantic routing, corpus-preferring grounding, and citation validation. Sits between your client and multiple LLMs, intercepts OpenAI-compatible chat completions, and enriches queries with retrieval-augmented context from Qdrant vector databases backed by Postgres document stores.
 
-What makes it different: ragpipe doesn't just inject context — it validates the model's citations against what was actually retrieved, strips hallucinated references, classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
+What makes it different: ragpipe classifies queries semantically and routes them to the right LLM and RAG backend — keeping data classifications separate across security domains. It validates the model's citations against what was actually retrieved, strips hallucinated references, classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
 
 ![Architecture](architecture.svg)
 
 ## How it works
 
-1. **Embed** the user's query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
-2. **Search** Qdrant for top-K candidate vectors (reference payloads only)
-3. **Hydrate** chunk text from Postgres document store (async, cached)
-4. **Rerank** with cross-encoder (ONNX Runtime, MiniLM-L-6-v2), filter below min score
-5. **Inject** system prompt + context with `[doc_id:chunk_id]` labels
-6. **Forward** to LLM (streaming or non-streaming)
-7. **Post-process**: parse citations, validate against retrieved set + docstore, strip invalid, classify grounding, attach `rag_metadata`, emit audit log
+1. **Classify** the query semantically (cosine similarity, <1ms) and select a route
+2. **Embed** the query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
+3. **Search** the route's Qdrant collection for top-K candidate vectors
+4. **Hydrate** chunk text from the route's Postgres document store (async, cached)
+5. **Rerank** with cross-encoder (ONNX Runtime, MiniLM-L-6-v2), filter below min score
+6. **Inject** the route's system prompt + context with `[doc_id:chunk_id]` labels
+7. **Forward** to the route's LLM (streaming or non-streaming)
+8. **Post-process**: parse citations, validate, classify grounding, attach `rag_metadata`, emit audit log
+
+Without a routes config (`RAGPIPE_ROUTES_FILE` unset), ragpipe operates as a single-pipeline proxy — fully backward compatible.
 
 ## Quick start (container)
 
@@ -97,6 +100,14 @@ All configuration is via environment variables with sensible defaults.
 
 If neither prompt variable is set, ragpipe uses a built-in corpus-preferring grounding prompt that instructs the model to cite documents as `[doc_id:chunk_id]` and prefix general knowledge with `⚠️ Not in corpus:`.
 
+### Routing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RAGPIPE_ROUTES_FILE` | — | Path to YAML routes config. When unset, single-pipeline mode |
+
+See [`examples/routes-multi-host.yaml`](examples/routes-multi-host.yaml) for a multi-host routing config.
+
 ### Admin
 
 | Variable | Default | Description |
@@ -128,6 +139,7 @@ Benchmarked against the legacy fastembed-based implementation with identical que
 | Reranker min score threshold (-5) | Filters irrelevant chunks on adversarial/off-topic queries, saves prompt tokens |
 | Dual-path streaming audit | Streaming responses audited + validated post-hoc with zero latency impact |
 | Negative finding classifier | Citations supporting "X is not mentioned" correctly classified as general, not mixed |
+| Semantic router | <1ms query classification, per-route LLM/Qdrant/docstore/prompt, cross-host forwarding |
 
 ## API
 
@@ -153,6 +165,7 @@ Ragpipe is fully OpenAI-compatible. It intercepts `/v1/chat/completions` and pas
 | `POST` | `/v1/embeddings` | OpenAI-compatible embeddings via the loaded model |
 | `GET` | `/health` | Health check |
 | `POST` | `/admin/reload-prompt` | Hot-reload system prompt from file/env (requires `RAGPIPE_ADMIN_TOKEN`) |
+| `POST` | `/admin/classify` | Test route classification without sending a chat completion (requires `RAGPIPE_ADMIN_TOKEN`) |
 | `*` | `/{path}` | Passthrough to model |
 
 ### Admin: reload prompt
@@ -175,16 +188,44 @@ Response:
 }
 ```
 
+### Admin: classify query
+
+Test which route a query would be sent to without sending a real chat completion. Essential for tuning route examples.
+
+```bash
+curl -X POST http://localhost:8090/admin/classify \
+  -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What does the NDAA say about AI?"}'
+```
+
+Response:
+
+```json
+{
+    "route": "lookup",
+    "score": 0.8189,
+    "all_routes": {
+        "analysis": 0.6245,
+        "personnel": 0.4881,
+        "lookup": 0.8189,
+        "general": 0.4268
+    }
+}
+```
+
 ## Known issues
 
 - **Streaming citation stripping**: Streaming responses are audited and validated post-hoc (dual-path accumulation), but invalid citations cannot be stripped because the text has already been delivered to the client. Invalid citations are logged as errors. Non-streaming requests strip invalid citations before delivery.
 - **LLM phrasing variance**: The negative finding classifier depends on the model using recognizable negation patterns ("no evidence", "not mentioned", etc.) before the `⚠️` marker. When the model phrases its negative finding differently, the response may be classified as `mixed` instead of `general`. The adversarial tuning agent will address prompt compliance consistency.
+- **Passthrough model list**: `/v1/models` passthrough always returns the global upstream's model list, not the routed model's list.
+- **No upstream failover**: If a route's upstream LLM is down, ragpipe returns 502. No automatic fallback to another route.
 
 ## Development
 
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v    # 83 tests
+python -m pytest tests/ -v    # 97 tests
 ruff check && ruff format --check
 ```
 
