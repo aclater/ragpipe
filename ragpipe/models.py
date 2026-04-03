@@ -22,14 +22,19 @@ CACHE_DIR = Path(os.environ.get("RAGPIPE_MODEL_CACHE", Path.home() / ".cache" / 
 ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
 # Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
+# MIGraphX replaces the removed ROCMExecutionProvider (removed in ORT 1.23).
+# "rocm" is kept as an alias for migraphx for backward compatibility.
 _DEVICE_TO_PROVIDER = {
     "cuda": "CUDAExecutionProvider",
-    "rocm": "ROCMExecutionProvider",
+    "migraphx": "MIGraphXExecutionProvider",
+    "rocm": "MIGraphXExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 
 # Preferred GPU providers in priority order.
-_GPU_PROVIDERS = ["CUDAExecutionProvider", "ROCMExecutionProvider"]
+# MIGraphX (AMD) uses graph-level compilation, no pre-compiled kernels needed.
+# CUDAExecutionProvider for NVIDIA GPUs.
+_GPU_PROVIDERS = ["CUDAExecutionProvider", "MIGraphXExecutionProvider"]
 
 
 def _get_providers() -> list[str]:

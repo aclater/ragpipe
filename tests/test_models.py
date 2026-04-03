@@ -103,12 +103,42 @@ def test_get_providers_prefers_cuda():
     assert providers == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
 
-def test_get_providers_prefers_rocm():
-    """When ROCm is available (but not CUDA), it should be preferred."""
-    p_ctx, e_ctx = _patch_providers(["ROCMExecutionProvider", "CPUExecutionProvider"])
+def test_get_providers_prefers_migraphx():
+    """When MIGraphX is available (but not CUDA), it should be preferred."""
+    p_ctx, e_ctx = _patch_providers(["MIGraphXExecutionProvider", "CPUExecutionProvider"])
     with p_ctx, e_ctx:
         providers = _get_providers()
-    assert providers == ["ROCMExecutionProvider", "CPUExecutionProvider"]
+    assert providers == ["MIGraphXExecutionProvider", "CPUExecutionProvider"]
+
+
+def test_get_providers_cuda_over_migraphx():
+    """When both CUDA and MIGraphX are available, CUDA should win."""
+    p_ctx, e_ctx = _patch_providers(["CUDAExecutionProvider", "MIGraphXExecutionProvider", "CPUExecutionProvider"])
+    with p_ctx, e_ctx:
+        providers = _get_providers()
+    assert providers == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+
+def test_get_providers_forced_rocm_maps_to_migraphx():
+    """RAGPIPE_DEVICE=rocm should map to MIGraphXExecutionProvider."""
+    p_ctx, e_ctx = _patch_providers(
+        ["MIGraphXExecutionProvider", "CPUExecutionProvider"],
+        env_overrides={"RAGPIPE_DEVICE": "rocm"},
+    )
+    with p_ctx, e_ctx:
+        providers = _get_providers()
+    assert providers == ["MIGraphXExecutionProvider", "CPUExecutionProvider"]
+
+
+def test_get_providers_forced_migraphx():
+    """RAGPIPE_DEVICE=migraphx should select MIGraphXExecutionProvider."""
+    p_ctx, e_ctx = _patch_providers(
+        ["MIGraphXExecutionProvider", "CPUExecutionProvider"],
+        env_overrides={"RAGPIPE_DEVICE": "migraphx"},
+    )
+    with p_ctx, e_ctx:
+        providers = _get_providers()
+    assert providers == ["MIGraphXExecutionProvider", "CPUExecutionProvider"]
 
 
 def test_get_providers_forced_cpu():
