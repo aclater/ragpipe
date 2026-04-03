@@ -22,16 +22,35 @@ jobs:
           args: format --check
 
   test:
-    name: pytest
+    name: pytest (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ragpipe
+          POSTGRES_PASSWORD: ragpipe
+          POSTGRES_DB: ragpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: pip install --quiet '.[dev]'
       - name: Run tests
+        env:
+          DOCSTORE_URL: postgresql://ragpipe:ragpipe@127.0.0.1:5432/ragpipe
         run: python -m pytest -v tests/
 
   hadolint:
@@ -42,14 +61,3 @@ jobs:
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Containerfile
-
-  pip-audit:
-    name: pip-audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install --quiet .
-      - uses: pypa/gh-action-pip-audit@v1.1.0
