@@ -367,13 +367,19 @@ class CachedDocstore:
         return result
 
 
-def create_docstore(backend: str | None = None) -> CachedDocstore:
-    """Factory: create a cached docstore backend based on config."""
+def create_docstore(backend: str | None = None, *, url: str | None = None) -> CachedDocstore:
+    """Factory: create a cached docstore backend based on config.
+
+    Args:
+        backend: "postgres" or "sqlite". Defaults to DOCSTORE_BACKEND env var.
+        url: Postgres connection string. Defaults to DOCSTORE_URL env var.
+    """
     backend = backend or DOCSTORE_BACKEND
+    effective_url = url or DOCSTORE_URL
     if backend == "postgres":
-        if not DOCSTORE_URL:
+        if not effective_url:
             raise ValueError("DOCSTORE_URL must be set for postgres backend")
-        store = PostgresDocstore(DOCSTORE_URL)
+        store = PostgresDocstore(effective_url)
     elif backend == "sqlite":
         store = SQLiteDocstore(DOCSTORE_SQLITE_PATH)
     else:

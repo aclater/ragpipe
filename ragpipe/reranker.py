@@ -40,21 +40,32 @@ def warm_up():
     _get_model()
 
 
-def rerank(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def rerank(
+    query: str,
+    results: list[dict[str, Any]],
+    *,
+    min_score: float | None = None,
+    top_n: int | None = None,
+) -> list[dict[str, Any]]:
     """Rerank retrieval results by cross-encoder relevance score.
 
     Args:
         query: The user's search query.
         results: List of dicts with at least a "text" key. Passed through
                  from Qdrant search output.
+        min_score: Minimum reranker score threshold. Defaults to RERANKER_MIN_SCORE.
+        top_n: Max results to keep. Defaults to RERANKER_TOP_N.
 
     Returns:
         The top_n results sorted by descending reranker score, in the same
         schema as the input. Each dict gets a "reranker_score" key added.
         If reranking is disabled, returns the input unchanged (up to top_n).
     """
+    effective_top_n = top_n if top_n is not None else RERANKER_TOP_N
+    effective_min_score = min_score if min_score is not None else RERANKER_MIN_SCORE
+
     if not RERANKER_ENABLED:
-        return results[:RERANKER_TOP_N]
+        return results[:effective_top_n]
 
     if not results:
         return results
@@ -78,15 +89,15 @@ def rerank(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # When all chunks are filtered, the model gets empty context and
     # falls back to general knowledge with the ⚠️ prefix — this is
     # correct behavior for adversarial or off-topic queries.
-    filtered = [r for r in ranked if r["reranker_score"] >= RERANKER_MIN_SCORE]
+    filtered = [r for r in ranked if r["reranker_score"] >= effective_min_score]
     if len(filtered) < len(ranked):
         log.info(
             "Filtered %d/%d chunks below min_score=%.1f (top=%.4f, cutoff=%.4f)",
             len(ranked) - len(filtered),
             len(ranked),
-            RERANKER_MIN_SCORE,
+            effective_min_score,
             ranked[0]["reranker_score"],
             ranked[-1]["reranker_score"] if ranked else 0,
         )
 
-    return filtered[:RERANKER_TOP_N]
+    return filtered[:effective_top_n]

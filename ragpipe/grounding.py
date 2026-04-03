@@ -128,14 +128,18 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
     return "\n\n".join(parts)
 
 
-def build_system_message(context: str) -> str:
-    """Build the full system message combining grounding rules and context."""
+def build_system_message(context: str, *, system_prompt: str | None = None) -> str:
+    """Build the full system message combining grounding rules and context.
+
+    Args:
+        context: Formatted chunk text with citation labels.
+        system_prompt: Override the global SYSTEM_PROMPT for this request.
+    """
+    prompt = system_prompt or SYSTEM_PROMPT
     if context:
-        return f"{SYSTEM_PROMPT}\n\n--- DOCUMENT CONTEXT ---\n{context}\n--- END CONTEXT ---"
+        return f"{prompt}\n\n--- DOCUMENT CONTEXT ---\n{context}\n--- END CONTEXT ---"
     else:
-        # No relevant documents retrieved — tell the model explicitly so it
-        # applies the general knowledge prefix per rule 2 of the prompt
-        return f"{SYSTEM_PROMPT}\n\nNo relevant documents were retrieved for this query."
+        return f"{prompt}\n\nNo relevant documents were retrieved for this query."
 
 
 # ── Citation parsing ─────────────────────────────────────────────────────────
@@ -326,6 +330,9 @@ def log_audit(
     grounding: str,
     valid_citations: list[tuple[str, int]],
     citation_validation: str,
+    *,
+    route_name: str | None = None,
+    route_score: float | None = None,
 ) -> None:
     """Write a structured audit log entry.
 
@@ -347,4 +354,8 @@ def log_audit(
         "citation_validation": citation_validation,
         "response_type": "answered",
     }
+    if route_name is not None:
+        entry["route"] = route_name
+    if route_score is not None:
+        entry["route_score"] = round(route_score, 4)
     audit_log.info(json.dumps(entry))

@@ -44,6 +44,7 @@ log = logging.getLogger("ragpipe")
 # ── Configuration ────────────────────────────────────────────────────────────
 
 ADMIN_TOKEN = os.environ.get("RAGPIPE_ADMIN_TOKEN", "")
+ROUTES_FILE = os.environ.get("RAGPIPE_ROUTES_FILE")
 MODEL_URL = os.environ.get("MODEL_URL", "http://127.0.0.1:8080")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION", "documents")
@@ -68,6 +69,9 @@ _executor = ThreadPoolExecutor(max_workers=4)
 # Persistent httpx client — reuses TCP connections across requests
 _http_client: httpx.AsyncClient = None
 
+# Semantic router — initialized from RAGPIPE_ROUTES_FILE if set
+_router = None
+
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
 
@@ -76,7 +80,7 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
-    global qdrant, embedder, docstore, _collection_exists, _http_client
+    global qdrant, embedder, docstore, _collection_exists, _http_client, _router
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
 
@@ -110,6 +114,16 @@ async def startup():
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
     )
 
+    # Initialize semantic router if routes config is provided
+    if ROUTES_FILE:
+        from ragpipe.router import SemanticRouter, load_routes_config
+
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
+        _router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
+        log.info("Semantic router initialized with %d routes from %s", len(configs), ROUTES_FILE)
+    else:
+        log.info("No RAGPIPE_ROUTES_FILE — single-pipeline mode")
+
     log.info(
         "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d)",
         MODEL_URL,
@@ -120,6 +134,8 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    if _router:
+        await _router.close_all()
     if _http_client:
         await _http_client.aclose()
     if qdrant:
@@ -148,17 +164,27 @@ def _check_collection() -> bool:
     return _collection_exists
 
 
-def _search_qdrant_sync(query: str) -> list[dict]:
+def _search_qdrant_sync(
+    query: str,
+    *,
+    qdrant_client=None,
+    collection: str | None = None,
+    top_k: int | None = None,
+) -> list[dict]:
     """Synchronous Qdrant search — runs in thread pool."""
+    qc = qdrant_client or qdrant
+    coll = collection or COLLECTION_NAME
+    k = top_k or TOP_K
     try:
-        if not _check_collection():
+        # Check collection exists (only for the global client)
+        if qc is qdrant and not _check_collection():
             return []
 
         query_vector = list(_embed_query(query))
-        results = qdrant.query_points(
-            collection_name=COLLECTION_NAME,
+        results = qc.query_points(
+            collection_name=coll,
             query=query_vector,
-            limit=TOP_K,
+            limit=k,
             with_payload=True,
         )
 
@@ -171,13 +197,14 @@ def _search_qdrant_sync(query: str) -> list[dict]:
         return []
 
 
-async def _hydrate(refs: list[dict]) -> list[dict]:
+async def _hydrate(refs: list[dict], *, ds=None) -> list[dict]:
     """Async docstore hydration — uses asyncpg pool, no thread pool needed."""
     if not refs:
         return []
 
+    effective_ds = ds or docstore
     lookup_keys = [(r["doc_id"], r["chunk_id"]) for r in refs]
-    texts = await docstore.get_chunks_async(lookup_keys)
+    texts = await effective_ds.get_chunks_async(lookup_keys)
 
     hydrated = []
     for ref in refs:
@@ -202,16 +229,26 @@ async def _hydrate(refs: list[dict]) -> list[dict]:
     return hydrated
 
 
-def _rerank_sync(query: str, candidates: list[dict]) -> list[dict]:
+def _rerank_sync(
+    query: str,
+    candidates: list[dict],
+    *,
+    min_score: float | None = None,
+    top_n: int | None = None,
+) -> list[dict]:
     """Synchronous reranking — runs in thread pool."""
-    return rerank(query, candidates)
+    return rerank(query, candidates, min_score=min_score, top_n=top_n)
 
 
-async def retrieve_and_rerank(user_query: str) -> tuple[list[dict], list[dict]]:
+async def retrieve_and_rerank(
+    user_query: str,
+    *,
+    pipeline=None,
+) -> tuple[list[dict], list[dict]]:
     """Full async retrieval pipeline: Qdrant → hydrate → rerank.
 
-    All blocking operations (embedding, Qdrant I/O, docstore SQL, reranker
-    inference) run in a thread pool to avoid blocking the FastAPI event loop.
+    When pipeline is provided, uses per-route resources. Otherwise
+    falls back to module-level singletons (backward compatible).
 
     Returns (ranked_chunks, all_retrieved_refs) where all_retrieved_refs
     is the full set of hydrated results before reranking, needed for
@@ -219,17 +256,36 @@ async def retrieve_and_rerank(user_query: str) -> tuple[list[dict], list[dict]]:
     """
     loop = asyncio.get_event_loop()
 
-    refs = await loop.run_in_executor(_executor, _search_qdrant_sync, user_query)
-    candidates = await _hydrate(refs)
-    ranked = await loop.run_in_executor(_executor, _rerank_sync, user_query, candidates)
+    if pipeline is not None:
+        search_kwargs = {
+            "qdrant_client": pipeline.qdrant,
+            "collection": pipeline.config.qdrant_collection or COLLECTION_NAME,
+            "top_k": pipeline.config.top_k,
+        }
+        rerank_kwargs = {
+            "min_score": pipeline.config.reranker_min_score,
+            "top_n": pipeline.config.reranker_top_n,
+        }
+        ds = pipeline.docstore
+    else:
+        search_kwargs = {}
+        rerank_kwargs = {}
+        ds = None
+
+    refs = await loop.run_in_executor(_executor, lambda: _search_qdrant_sync(user_query, **search_kwargs))
+    candidates = await _hydrate(refs, ds=ds)
+    ranked = await loop.run_in_executor(_executor, lambda: _rerank_sync(user_query, candidates, **rerank_kwargs))
     return ranked, candidates
 
 
 # ── Request processing ───────────────────────────────────────────────────────
 
 
-async def process_chat_request(body: dict) -> tuple[dict, dict]:
+async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict]:
     """Process a chat completion request with grounding.
+
+    When pipeline is provided, uses per-route resources. Otherwise
+    falls back to module-level singletons (backward compatible).
 
     Returns (modified_body, retrieval_context) where retrieval_context
     contains everything needed for post-response citation validation.
@@ -248,19 +304,23 @@ async def process_chat_request(body: dict) -> tuple[dict, dict]:
     if not user_query:
         return body, {"ranked": [], "retrieved_set": set(), "corpus_coverage": "none", "user_query": ""}
 
-    # Retrieve and rerank (async — blocking I/O runs in thread pool)
-    ranked, all_candidates = await retrieve_and_rerank(user_query)
+    # Check if this route has RAG disabled
+    rag_enabled = pipeline.config.rag_enabled if pipeline else True
+
+    if rag_enabled:
+        ranked, all_candidates = await retrieve_and_rerank(user_query, pipeline=pipeline)
+    else:
+        ranked, all_candidates = [], []
+
     corpus_coverage = determine_corpus_coverage(ranked)
 
-    # Build the retrieved set for citation validation — includes all
-    # candidates that were retrieved, not just the reranked top-N,
-    # because the model sees only the top-N but we validate against
-    # the full retrieved set to catch hallucinated citations
     retrieved_set = {(c["doc_id"], c["chunk_id"]) for c in all_candidates}
 
     # Format context with citation-friendly labels
-    context = format_context(ranked, docstore=docstore)
-    system_content = build_system_message(context)
+    effective_ds = pipeline.docstore if pipeline else docstore
+    context = format_context(ranked, docstore=effective_ds)
+    effective_prompt = pipeline.system_prompt if pipeline else None
+    system_content = build_system_message(context, system_prompt=effective_prompt)
 
     if corpus_coverage == "none":
         # Log empty retrieval — useful signal for corpus gap analysis
@@ -444,7 +504,34 @@ async def chat_completions(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    body, retrieval_ctx = await process_chat_request(body)
+
+    # Route selection — when a router is configured, classify the query
+    # and select a per-route pipeline. Otherwise use module-level globals.
+    pipeline = None
+    if _router is not None:
+        user_msg = ""
+        for msg in reversed(body.get("messages", [])):
+            if msg.get("role") == "user":
+                user_msg = msg.get("content", "")
+                break
+        if user_msg:
+            import numpy as np
+
+            query_vec = np.array(_embed_query(user_msg))
+            route_name, route_score = _router.classify(query_vec)
+            pipeline = _router.get_pipeline(route_name)
+            retrieval_ctx_extra = {"route_name": route_name, "route_score": route_score}
+            log.info("Routed to '%s' (score=%.4f)", route_name, route_score)
+        else:
+            retrieval_ctx_extra = {}
+    else:
+        retrieval_ctx_extra = {}
+
+    body, retrieval_ctx = await process_chat_request(body, pipeline=pipeline)
+    retrieval_ctx.update(retrieval_ctx_extra)
+
+    # Determine which model URL to forward to
+    target_url = pipeline.config.model_url if pipeline else MODEL_URL
 
     stream = body.get("stream", False)
 
@@ -462,7 +549,7 @@ async def chat_completions(request: Request):
             last_chunk_id = None
             async with _http_client.stream(
                 "POST",
-                f"{MODEL_URL}/v1/chat/completions",
+                f"{target_url}/v1/chat/completions",
                 json=body,
                 headers={"Content-Type": "application/json"},
             ) as resp:
@@ -514,7 +601,7 @@ async def chat_completions(request: Request):
         )
     else:
         resp = await _http_client.post(
-            f"{MODEL_URL}/v1/chat/completions",
+            f"{target_url}/v1/chat/completions",
             json=body,
         )
         try:
@@ -580,6 +667,51 @@ async def reload_prompt(request: Request):
 
     result = reload_system_prompt()
     return JSONResponse(result)
+
+
+@app.post("/admin/classify")
+async def classify_query(request: Request):
+    """Classify a query against the semantic router without sending a chat completion.
+
+    Requires RAGPIPE_ADMIN_TOKEN. Returns the selected route, score, and
+    all route scores for tuning centroid quality.
+    """
+    if not ADMIN_TOKEN:
+        return JSONResponse(
+            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
+            status_code=403,
+        )
+    auth = request.headers.get("authorization", "")
+    if auth != f"Bearer {ADMIN_TOKEN}":
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if _router is None:
+        return JSONResponse(
+            {"error": "No routes configured — set RAGPIPE_ROUTES_FILE"},
+            status_code=404,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    query = body.get("query", "")
+    if not query:
+        return JSONResponse({"error": "Missing 'query' field"}, status_code=400)
+
+    import numpy as np
+
+    query_vec = np.array(_embed_query(query))
+    route_name, route_score = _router.classify(query_vec)
+    all_scores = _router.all_scores(query_vec)
+
+    return JSONResponse(
+        {
+            "route": route_name,
+            "score": round(route_score, 4),
+            "all_routes": {name: round(score, 4) for name, score in all_scores.items()},
+        }
+    )
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
