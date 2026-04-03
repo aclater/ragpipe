@@ -4,7 +4,14 @@ RAG proxy with semantic routing, corpus-preferring grounding, and citation valid
 
 What makes it different: ragpipe classifies queries semantically and routes them to the right LLM and RAG backend — keeping data classifications separate across security domains. It validates the model's citations against what was actually retrieved, strips hallucinated references, classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
 
-![Architecture](architecture.svg)
+### Single-pipeline request flow
+![Request flow](architecture.svg)
+
+### Multi-host semantic routing
+![Routing](architecture-routing.svg)
+
+### Package components
+![Components](architecture-components.svg)
 
 ## How it works
 

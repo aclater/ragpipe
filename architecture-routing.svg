@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #1a1a2e; }
+      .box { fill: #16213e; stroke: #e2e8f0; }
+      .box-highlight { fill: #1a365d; stroke: #63b3ed; }
+      .box-external { fill: #1c1c1c; stroke: #718096; }
+      .box-host { fill: none; stroke: #4a5568; stroke-dasharray: 6,3; }
+      .text { fill: #e2e8f0; }
+      .text-dim { fill: #a0aec0; }
+      .text-accent { fill: #63b3ed; }
+      .text-green { fill: #68d391; }
+      .text-orange { fill: #f6ad55; }
+      .arrow { stroke: #63b3ed; fill: #63b3ed; }
+      .arrow-dim { stroke: #718096; fill: #718096; }
+      .arrow-green { stroke: #68d391; fill: #68d391; }
+      .arrow-orange { stroke: #f6ad55; fill: #f6ad55; }
+      .label-bg { fill: #2d3748; }
+    }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #ffffff; }
+      .box { fill: #f7fafc; stroke: #2d3748; }
+      .box-highlight { fill: #ebf8ff; stroke: #3182ce; }
+      .box-external { fill: #f9f9f9; stroke: #a0aec0; }
+      .box-host { fill: none; stroke: #cbd5e0; stroke-dasharray: 6,3; }
+      .text { fill: #1a202c; }
+      .text-dim { fill: #718096; }
+      .text-accent { fill: #2b6cb0; }
+      .text-green { fill: #276749; }
+      .text-orange { fill: #c05621; }
+      .arrow { stroke: #3182ce; fill: #3182ce; }
+      .arrow-dim { stroke: #a0aec0; fill: #a0aec0; }
+      .arrow-green { stroke: #38a169; fill: #38a169; }
+      .arrow-orange { stroke: #dd6b20; fill: #dd6b20; }
+      .label-bg { fill: #edf2f7; }
+    }
+  </style>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow"/></marker>
+    <marker id="ahg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-green"/></marker>
+    <marker id="aho" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-orange"/></marker>
+    <marker id="ahd" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-dim"/></marker>
+  </defs>
+
+  <rect width="960" height="580" class="bg" rx="8"/>
+
+  <!-- Title -->
+  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe — semantic routing</text>
+  <text x="480" y="50" text-anchor="middle" font-size="11" class="text-dim">Multi-LLM, multi-RAG, cross-host query routing with data classification isolation</text>
+
+  <!-- Client -->
+  <rect x="380" y="64" width="200" height="36" rx="6" class="box-external"/>
+  <text x="480" y="87" text-anchor="middle" font-weight="600" class="text">Client</text>
+
+  <!-- Arrow: Client → Router -->
+  <line x1="480" y1="100" x2="480" y2="130" class="arrow" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- RAGPIPE ROUTER -->
+  <rect x="300" y="134" width="360" height="70" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.4"/>
+  <text x="480" y="158" text-anchor="middle" font-weight="bold" font-size="14" class="text-accent">Semantic Router</text>
+  <text x="480" y="176" text-anchor="middle" font-size="10" class="text-dim">cosine similarity on pre-embedded examples · &lt;1ms</text>
+  <text x="480" y="192" text-anchor="middle" font-size="10" class="text-dim">RAGPIPE_ROUTES_FILE · threshold · fallback route</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- HARRISON HOST BOX -->
+  <rect x="30" y="240" width="430" height="310" rx="8" class="box-host"/>
+  <text x="50" y="262" font-size="13" font-weight="bold" class="text-green">harrison.home.arpa</text>
+  <text x="50" y="278" font-size="10" class="text-dim">AMD Ryzen AI Max+ 395 · ROCm · 128 GB</text>
+
+  <!-- Analysis route -->
+  <rect x="55" y="295" width="185" height="68" rx="5" class="box"/>
+  <text x="147" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">analysis</text>
+  <text x="147" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-35B-A3B</text>
+  <text x="147" y="349" text-anchor="middle" font-size="10" class="text-dim">Complex queries · top_k=40</text>
+
+  <!-- Personnel route -->
+  <rect x="255" y="295" width="185" height="68" rx="5" class="box"/>
+  <text x="347" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">personnel</text>
+  <text x="347" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-35B-A3B</text>
+  <text x="347" y="349" text-anchor="middle" font-size="10" class="text-dim">Data stays local · top_k=20</text>
+
+  <!-- Harrison services -->
+  <rect x="55" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="115" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
+  <text x="115" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
+
+  <rect x="190" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="250" y="405" text-anchor="middle" font-size="11" class="text">Postgres :5432</text>
+  <text x="250" y="418" text-anchor="middle" font-size="9" class="text-dim">chunks</text>
+
+  <rect x="325" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="385" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
+  <text x="385" y="418" text-anchor="middle" font-size="9" class="text-dim">35B-A3B · ROCm</text>
+
+  <!-- Harrison ragpipe label -->
+  <rect x="55" y="445" width="390" height="24" rx="3" class="label-bg"/>
+  <text x="250" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · embedder · reranker · chunk cache · asyncpg pool</text>
+
+  <!-- Arrows: Router → Harrison routes -->
+  <line x1="420" y1="204" x2="147" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
+  <line x1="480" y1="204" x2="347" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
+
+  <!-- Arrows: Routes → Services -->
+  <line x1="147" y1="363" x2="115" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="147" y1="363" x2="250" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="147" y1="363" x2="385" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="347" y1="363" x2="115" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="347" y1="363" x2="250" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="347" y1="363" x2="385" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- LENNON HOST BOX -->
+  <rect x="500" y="240" width="430" height="310" rx="8" class="box-host"/>
+  <text x="520" y="262" font-size="13" font-weight="bold" class="text-orange">lennon.home.arpa</text>
+  <text x="520" y="278" font-size="10" class="text-dim">NVIDIA RTX 4070 Ti · CUDA · 125 GB</text>
+
+  <!-- Lookup route -->
+  <rect x="525" y="295" width="185" height="68" rx="5" class="box"/>
+  <text x="617" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">lookup</text>
+  <text x="617" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-9B</text>
+  <text x="617" y="349" text-anchor="middle" font-size="10" class="text-dim">Fast factual · top_k=20</text>
+
+  <!-- General route -->
+  <rect x="725" y="295" width="185" height="68" rx="5" class="box"/>
+  <text x="817" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">general</text>
+  <text x="817" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-9B</text>
+  <text x="817" y="349" text-anchor="middle" font-size="10" class="text-dim">No RAG · 380ms</text>
+
+  <!-- Lennon services -->
+  <rect x="525" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="585" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
+  <text x="585" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
+
+  <rect x="660" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="720" y="405" text-anchor="middle" font-size="11" class="text">Postgres :5432</text>
+  <text x="720" y="418" text-anchor="middle" font-size="9" class="text-dim">chunks</text>
+
+  <rect x="795" y="385" width="120" height="40" rx="4" class="box-external"/>
+  <text x="855" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
+  <text x="855" y="418" text-anchor="middle" font-size="9" class="text-dim">9B · CUDA</text>
+
+  <!-- Lennon label -->
+  <rect x="525" y="445" width="390" height="24" rx="3" class="label-bg"/>
+  <text x="720" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · independent stack · same corpus (4,831 chunks)</text>
+
+  <!-- Arrows: Router → Lennon routes -->
+  <line x1="540" y1="204" x2="617" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
+  <line x1="580" y1="204" x2="817" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
+
+  <!-- Arrows: Lookup → Services -->
+  <line x1="617" y1="363" x2="585" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="617" y1="363" x2="720" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="617" y1="363" x2="855" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <!-- General → LLM only (no RAG) -->
+  <line x1="817" y1="363" x2="855" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+
+  <!-- Network arrow between hosts -->
+  <text x="480" y="500" text-anchor="middle" font-size="10" class="text-dim">home network · all ports accessible</text>
+
+  <!-- Footer -->
+  <text x="480" y="540" text-anchor="middle" font-size="11" class="text-dim">Classification runs on harrison (&lt;1ms) · forwarding via persistent httpx connection pool</text>
+  <text x="480" y="558" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0</text>
+</svg>

@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #1a1a2e; }
+      .box { fill: #16213e; stroke: #e2e8f0; }
+      .box-highlight { fill: #1a365d; stroke: #63b3ed; }
+      .box-test { fill: #1c2333; stroke: #9f7aea; }
+      .text { fill: #e2e8f0; }
+      .text-dim { fill: #a0aec0; }
+      .text-accent { fill: #63b3ed; }
+      .text-purple { fill: #b794f4; }
+      .arrow { stroke: #63b3ed; fill: #63b3ed; }
+      .arrow-dim { stroke: #4a5568; fill: #4a5568; }
+      .label-bg { fill: #2d3748; }
+    }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #ffffff; }
+      .box { fill: #f7fafc; stroke: #2d3748; }
+      .box-highlight { fill: #ebf8ff; stroke: #3182ce; }
+      .box-test { fill: #faf5ff; stroke: #805ad5; }
+      .text { fill: #1a202c; }
+      .text-dim { fill: #718096; }
+      .text-accent { fill: #2b6cb0; }
+      .text-purple { fill: #6b46c1; }
+      .arrow { stroke: #3182ce; fill: #3182ce; }
+      .arrow-dim { stroke: #a0aec0; fill: #a0aec0; }
+      .label-bg { fill: #edf2f7; }
+    }
+  </style>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow"/></marker>
+    <marker id="ahd" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-dim"/></marker>
+  </defs>
+
+  <rect width="900" height="540" class="bg" rx="8"/>
+
+  <!-- Title -->
+  <text x="450" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe — component diagram</text>
+  <text x="450" y="50" text-anchor="middle" font-size="11" class="text-dim">Package internals and module relationships</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- APP.PY — central hub -->
+  <rect x="300" y="70" width="300" height="90" rx="6" class="box-highlight" stroke-width="2"/>
+  <text x="450" y="95" text-anchor="middle" font-weight="bold" font-size="14" class="text-accent">app.py</text>
+  <text x="450" y="113" text-anchor="middle" font-size="10" class="text-dim">FastAPI endpoints · request pipeline</text>
+  <text x="450" y="127" text-anchor="middle" font-size="10" class="text-dim">startup/shutdown · streaming · admin API</text>
+  <text x="450" y="141" text-anchor="middle" font-size="10" class="text-dim">retrieve_and_rerank() · process_response()</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- LEFT COLUMN — routing + models -->
+
+  <!-- ROUTER.PY -->
+  <rect x="40" y="80" width="220" height="70" rx="5" class="box"/>
+  <text x="150" y="103" text-anchor="middle" font-weight="600" font-size="12" class="text">router.py</text>
+  <text x="150" y="119" text-anchor="middle" font-size="10" class="text-dim">SemanticRouter · RouteConfig</text>
+  <text x="150" y="133" text-anchor="middle" font-size="10" class="text-dim">RoutePipeline · YAML loader</text>
+  <line x1="260" y1="115" x2="300" y2="115" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- MODELS.PY -->
+  <rect x="40" y="195" width="220" height="70" rx="5" class="box"/>
+  <text x="150" y="218" text-anchor="middle" font-weight="600" font-size="12" class="text">models.py</text>
+  <text x="150" y="234" text-anchor="middle" font-size="10" class="text-dim">Embedder · Reranker</text>
+  <text x="150" y="248" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime · tokenizers · HF Hub</text>
+  <line x1="260" y1="220" x2="370" y2="160" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+
+  <!-- Arrow: router uses models (via embedder) -->
+  <line x1="150" y1="150" x2="150" y2="195" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <text x="158" y="178" font-size="9" class="text-dim">embeds examples</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- RIGHT COLUMN — grounding + reranker -->
+
+  <!-- GROUNDING.PY -->
+  <rect x="640" y="80" width="220" height="70" rx="5" class="box"/>
+  <text x="750" y="103" text-anchor="middle" font-weight="600" font-size="12" class="text">grounding.py</text>
+  <text x="750" y="119" text-anchor="middle" font-size="10" class="text-dim">SYSTEM_PROMPT · citations</text>
+  <text x="750" y="133" text-anchor="middle" font-size="10" class="text-dim">validation · classification · audit</text>
+  <line x1="600" y1="115" x2="640" y2="115" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- RERANKER.PY -->
+  <rect x="640" y="195" width="220" height="70" rx="5" class="box"/>
+  <text x="750" y="218" text-anchor="middle" font-weight="600" font-size="12" class="text">reranker.py</text>
+  <text x="750" y="234" text-anchor="middle" font-size="10" class="text-dim">rerank() · min score filter</text>
+  <text x="750" y="248" text-anchor="middle" font-size="10" class="text-dim">wraps models.Reranker</text>
+  <line x1="640" y1="220" x2="530" y2="160" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+
+  <!-- Arrow: reranker uses models -->
+  <line x1="750" y1="265" x2="260" y2="240" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <text x="500" y="258" font-size="9" class="text-dim">uses Reranker</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- BOTTOM — docstore -->
+
+  <!-- DOCSTORE.PY -->
+  <rect x="300" y="195" width="300" height="70" rx="5" class="box"/>
+  <text x="450" y="218" text-anchor="middle" font-weight="600" font-size="12" class="text">docstore.py</text>
+  <text x="450" y="234" text-anchor="middle" font-size="10" class="text-dim">PostgresDocstore (asyncpg) · SQLiteDocstore</text>
+  <text x="450" y="248" text-anchor="middle" font-size="10" class="text-dim">CachedDocstore LRU wrapper · create_docstore()</text>
+  <line x1="450" y1="160" x2="450" y2="195" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Arrow: router creates per-route docstores -->
+  <line x1="200" y1="150" x2="300" y2="215" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <text x="225" y="185" font-size="9" class="text-dim">per-route</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ENTRY POINTS -->
+  <rect x="300" y="300" width="140" height="40" rx="4" class="label-bg"/>
+  <text x="370" y="318" text-anchor="middle" font-size="11" class="text">__main__.py</text>
+  <text x="370" y="332" text-anchor="middle" font-size="9" class="text-dim">python -m ragpipe</text>
+
+  <rect x="460" y="300" width="140" height="40" rx="4" class="label-bg"/>
+  <text x="530" y="318" text-anchor="middle" font-size="11" class="text">__init__.py</text>
+  <text x="530" y="332" text-anchor="middle" font-size="9" class="text-dim">__version__ · API</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- TESTS -->
+  <text x="450" y="375" text-anchor="middle" font-size="13" font-weight="bold" class="text-purple">tests/ — 97 tests</text>
+
+  <rect x="40" y="395" width="155" height="50" rx="4" class="box-test"/>
+  <text x="117" y="416" text-anchor="middle" font-size="11" class="text">test_router.py</text>
+  <text x="117" y="432" text-anchor="middle" font-size="9" class="text-purple">14 tests</text>
+
+  <rect x="210" y="395" width="155" height="50" rx="4" class="box-test"/>
+  <text x="287" y="416" text-anchor="middle" font-size="11" class="text">test_grounding.py</text>
+  <text x="287" y="432" text-anchor="middle" font-size="9" class="text-purple">36 tests</text>
+
+  <rect x="380" y="395" width="155" height="50" rx="4" class="box-test"/>
+  <text x="457" y="416" text-anchor="middle" font-size="11" class="text">test_docstore.py</text>
+  <text x="457" y="432" text-anchor="middle" font-size="9" class="text-purple">25 tests</text>
+
+  <rect x="550" y="395" width="155" height="50" rx="4" class="box-test"/>
+  <text x="627" y="416" text-anchor="middle" font-size="11" class="text">test_reranker.py</text>
+  <text x="627" y="432" text-anchor="middle" font-size="9" class="text-purple">12 tests</text>
+
+  <rect x="720" y="395" width="145" height="50" rx="4" class="box-test"/>
+  <text x="792" y="416" text-anchor="middle" font-size="11" class="text">test_models.py</text>
+  <text x="792" y="432" text-anchor="middle" font-size="9" class="text-purple">7 tests</text>
+
+  <rect x="380" y="455" width="155" height="50" rx="4" class="box-test"/>
+  <text x="457" y="476" text-anchor="middle" font-size="11" class="text">test_admin.py</text>
+  <text x="457" y="492" text-anchor="middle" font-size="9" class="text-purple">4 tests (+ classify)</text>
+
+  <!-- Footer -->
+  <text x="450" y="530" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0 · Python >=3.11 · UBI9 container</text>
+</svg>
