@@ -40,7 +40,7 @@ tests/
   test_reranker.py   — 12 tests (enabled/disabled/threshold/model swap)
   test_models.py     — 7 tests (embedder + reranker ONNX wrappers)
 examples/
-  routes-multi-host.yaml — cross-host routing config (harrison ↔ lennon)
+  routes-multi-host.yaml — cross-host routing config example
 ```
 
 ## Key design decisions
@@ -76,7 +76,7 @@ examples/
 | Reranker min score threshold (-5) | Filters irrelevant chunks, adversarial queries get clean empty context |
 | Dual-path streaming audit | Streaming responses now audited + validated post-hoc, zero latency impact |
 | Negative finding classifier | Citations supporting "X is not mentioned" classified as general, not mixed |
-| Semantic router | <1ms query classification, cross-host routing verified harrison↔lennon |
+| Semantic router | <1ms query classification, cross-host routing verified |
 
 ## Running tests
 ```bash

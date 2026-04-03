@@ -65,7 +65,7 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- HARRISON HOST BOX -->
   <rect x="30" y="240" width="430" height="310" rx="8" class="box-host"/>
-  <text x="50" y="262" font-size="13" font-weight="bold" class="text-green">harrison.home.arpa</text>
+  <text x="50" y="262" font-size="13" font-weight="bold" class="text-green">host-a (primary)</text>
   <text x="50" y="278" font-size="10" class="text-dim">AMD Ryzen AI Max+ 395 · ROCm · 128 GB</text>
 
   <!-- Analysis route -->
@@ -112,7 +112,7 @@
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- LENNON HOST BOX -->
   <rect x="500" y="240" width="430" height="310" rx="8" class="box-host"/>
-  <text x="520" y="262" font-size="13" font-weight="bold" class="text-orange">lennon.home.arpa</text>
+  <text x="520" y="262" font-size="13" font-weight="bold" class="text-orange">host-b (secondary)</text>
   <text x="520" y="278" font-size="10" class="text-dim">NVIDIA RTX 4070 Ti · CUDA · 125 GB</text>
 
   <!-- Lookup route -->
@@ -159,6 +159,6 @@
   <text x="480" y="500" text-anchor="middle" font-size="10" class="text-dim">home network · all ports accessible</text>
 
   <!-- Footer -->
-  <text x="480" y="540" text-anchor="middle" font-size="11" class="text-dim">Classification runs on harrison (&lt;1ms) · forwarding via persistent httpx connection pool</text>
+  <text x="480" y="540" text-anchor="middle" font-size="11" class="text-dim">Classification runs on host-a (&lt;1ms) · forwarding via persistent httpx connection pool</text>
   <text x="480" y="558" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0</text>
 </svg>

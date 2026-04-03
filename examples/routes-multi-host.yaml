@@ -1,17 +1,17 @@
-# Example: cross-host routing between harrison and lennon
+# Example: cross-host routing between two hosts
 #
-# harrison (AMD Ryzen AI Max+ 395, ROCm): Qwen3.5-35B-A3B — complex queries
-# lennon (NVIDIA RTX 4070 Ti, CUDA): Qwen3.5-9B — simple/fast queries
+# host-a (primary): larger model for complex queries
+# host-b (secondary): smaller model for fast/simple queries
 #
 # Set RAGPIPE_ROUTES_FILE to this file path to enable routing.
-# Ragpipe runs on harrison and classifies locally (<1ms), then
+# Ragpipe runs on host-a and classifies locally (<1ms), then
 # forwards to the appropriate host's LLM.
 
 threshold: 0.3
 fallback_route: general
 
 routes:
-  # Complex analysis — route to the larger model on harrison
+  # Complex analysis — route to the larger model on host-a
   analysis:
     examples:
       - "Summarize the key provisions of the defense authorization act"
@@ -22,11 +22,11 @@ routes:
     model_url: http://127.0.0.1:8080
     qdrant_url: http://127.0.0.1:6333
     qdrant_collection: documents
-    docstore_url: postgresql://litellm:litellm@127.0.0.1:5432/litellm
+    docstore_url: postgresql://user:pass@127.0.0.1:5432/ragpipe
     reranker_top_n: 15
     top_k: 40
 
-  # Personnel queries — route to harrison (keep personnel data local)
+  # Personnel queries — route to host-a (keep personnel data local)
   personnel:
     examples:
       - "What is this person's role and background?"
@@ -36,30 +36,30 @@ routes:
     model_url: http://127.0.0.1:8080
     qdrant_url: http://127.0.0.1:6333
     qdrant_collection: documents
-    docstore_url: postgresql://litellm:litellm@127.0.0.1:5432/litellm
+    docstore_url: postgresql://user:pass@127.0.0.1:5432/ragpipe
     reranker_top_n: 5
     top_k: 20
 
-  # Quick factual lookups — route to the faster model on lennon
+  # Quick factual lookups — route to the faster model on host-b
   lookup:
     examples:
       - "What does the NDAA say about AI procurement?"
       - "What section covers cybersecurity requirements?"
       - "Find the provision about autonomous systems"
       - "What is Project Maven?"
-    model_url: http://lennon.home.arpa:8080
-    qdrant_url: http://lennon.home.arpa:6333
+    model_url: http://host-b.example.local:8080
+    qdrant_url: http://host-b.example.local:6333
     qdrant_collection: documents
-    docstore_url: postgresql://litellm:litellm@lennon.home.arpa:5432/litellm
+    docstore_url: postgresql://user:pass@host-b.example.local:5432/ragpipe
     reranker_top_n: 5
     top_k: 20
 
-  # General knowledge — route to lennon (faster, no RAG needed)
+  # General knowledge — route to host-b (faster, no RAG needed)
   general:
     examples:
       - "What is the capital of France?"
       - "Explain how gravity works"
       - "What is machine learning?"
       - "How does TCP/IP work?"
-    model_url: http://lennon.home.arpa:8080
+    model_url: http://host-b.example.local:8080
     rag_enabled: false
