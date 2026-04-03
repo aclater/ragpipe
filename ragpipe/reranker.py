@@ -17,6 +17,7 @@ log = logging.getLogger("ragpipe.reranker")
 RERANKER_ENABLED = os.environ.get("RERANKER_ENABLED", "true").lower() in ("true", "1", "yes")
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 RERANKER_TOP_N = int(os.environ.get("RERANKER_TOP_N", "5"))
+RERANKER_MIN_SCORE = float(os.environ.get("RERANKER_MIN_SCORE", "-5"))
 
 _model = None
 
@@ -72,4 +73,20 @@ def rerank(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result["reranker_score"] = score
 
     ranked = sorted(results, key=lambda r: r["reranker_score"], reverse=True)
-    return ranked[:RERANKER_TOP_N]
+
+    # Filter out chunks below the minimum confidence score.
+    # When all chunks are filtered, the model gets empty context and
+    # falls back to general knowledge with the ⚠️ prefix — this is
+    # correct behavior for adversarial or off-topic queries.
+    filtered = [r for r in ranked if r["reranker_score"] >= RERANKER_MIN_SCORE]
+    if len(filtered) < len(ranked):
+        log.info(
+            "Filtered %d/%d chunks below min_score=%.1f (top=%.4f, cutoff=%.4f)",
+            len(ranked) - len(filtered),
+            len(ranked),
+            RERANKER_MIN_SCORE,
+            ranked[0]["reranker_score"],
+            ranked[-1]["reranker_score"] if ranked else 0,
+        )
+
+    return filtered[:RERANKER_TOP_N]

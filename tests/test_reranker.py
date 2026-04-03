@@ -81,7 +81,7 @@ def test_rerank_empty_input():
 
 def test_rerank_fewer_than_top_n():
     """If fewer results than top_n, return all of them."""
-    mod = _reload_reranker(RERANKER_ENABLED="true", RERANKER_TOP_N="20")
+    mod = _reload_reranker(RERANKER_ENABLED="true", RERANKER_TOP_N="20", RERANKER_MIN_SCORE="-999")
     results = _make_results(3)
     ranked = mod.rerank("query", results)
     assert len(ranked) == 3
@@ -129,3 +129,36 @@ def test_model_swap_via_env():
     results = _make_results(5)
     ranked = mod.rerank("What is topic A?", results)
     assert len(ranked) == 3
+
+
+# ── Tests: min score threshold ──────────────────────────────────────────────
+
+
+def test_min_score_filters_low_confidence():
+    """Chunks scoring below RERANKER_MIN_SCORE should be filtered out."""
+    mod = _reload_reranker(
+        RERANKER_ENABLED="true",
+        RERANKER_TOP_N="10",
+        RERANKER_MIN_SCORE="100",  # impossibly high — everything filtered
+    )
+    results = _make_results(5)
+    ranked = mod.rerank("test query", results)
+    assert len(ranked) == 0
+
+
+def test_min_score_keeps_relevant():
+    """Chunks above RERANKER_MIN_SCORE should pass through."""
+    mod = _reload_reranker(
+        RERANKER_ENABLED="true",
+        RERANKER_TOP_N="10",
+        RERANKER_MIN_SCORE="-999",  # effectively disabled — everything passes
+    )
+    results = _make_results(5)
+    ranked = mod.rerank("test query", results)
+    assert len(ranked) == 5
+
+
+def test_min_score_default():
+    """Default RERANKER_MIN_SCORE should be -5."""
+    mod = _reload_reranker(RERANKER_ENABLED="true")
+    assert mod.RERANKER_MIN_SCORE == -5.0

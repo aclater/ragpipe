@@ -84,12 +84,6 @@ def reload_system_prompt() -> dict:
     }
 
 
-# Reranker minimum score — below this, chunks are considered low-confidence.
-# Unlike a hard stop, we still proceed to the LLM with empty context and
-# let the model answer from general knowledge with the ⚠️ prefix.
-RERANKER_MIN_SCORE = float(os.environ.get("RERANKER_MIN_SCORE", "-999"))
-
-
 def format_context(ranked_chunks: list[dict], docstore=None) -> str:
     """Format reranked chunks as context with doc_id:chunk_id references.
 
