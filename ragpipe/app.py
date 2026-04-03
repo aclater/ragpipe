@@ -43,6 +43,7 @@ log = logging.getLogger("ragpipe")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
+ADMIN_TOKEN = os.environ.get("RAGPIPE_ADMIN_TOKEN", "")
 MODEL_URL = os.environ.get("MODEL_URL", "http://127.0.0.1:8080")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION", "documents")
@@ -486,6 +487,29 @@ async def embeddings(request: Request):
             "model": EMBED_MODEL,
         }
     )
+
+
+@app.post("/admin/reload-prompt")
+async def reload_prompt(request: Request):
+    """Hot-reload the system prompt from file/env/default.
+
+    Requires RAGPIPE_ADMIN_TOKEN to be set and passed as a Bearer token.
+    The adversarial tuning agent writes a new prompt file, then calls
+    this endpoint to apply it without restarting ragpipe.
+    """
+    if not ADMIN_TOKEN:
+        return JSONResponse(
+            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
+            status_code=403,
+        )
+    auth = request.headers.get("authorization", "")
+    if auth != f"Bearer {ADMIN_TOKEN}":
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    from ragpipe.grounding import reload_system_prompt
+
+    result = reload_system_prompt()
+    return JSONResponse(result)
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])

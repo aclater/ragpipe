@@ -287,3 +287,40 @@ def test_empty_retrieval_proceeds_to_llm():
     assert "No relevant documents were retrieved" in msg
     # Coverage should be none
     assert mod.determine_corpus_coverage([]) == "none"
+
+
+# ── Prompt reload ────────────────────────────────────────────────────────────
+
+
+def test_reload_from_file(tmp_path, monkeypatch):
+    """reload_system_prompt() re-reads the file and updates the module state."""
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("Initial prompt")
+    monkeypatch.setenv("RAGPIPE_SYSTEM_PROMPT_FILE", str(prompt_file))
+    mod = _reload()
+    assert mod.SYSTEM_PROMPT == "Initial prompt"
+
+    # Write a new prompt and reload without reimporting
+    prompt_file.write_text("Updated prompt")
+    result = mod.reload_system_prompt()
+    assert result["changed"] is True
+    assert result["source"] == f"file:{prompt_file}"
+    assert mod.SYSTEM_PROMPT == "Updated prompt"
+
+
+def test_reload_unchanged(monkeypatch):
+    """reload_system_prompt() reports changed=False when prompt hasn't changed."""
+    monkeypatch.delenv("RAGPIPE_SYSTEM_PROMPT_FILE", raising=False)
+    monkeypatch.delenv("RAGPIPE_SYSTEM_PROMPT", raising=False)
+    mod = _reload()
+    result = mod.reload_system_prompt()
+    assert result["changed"] is False
+    assert result["source"] == "default"
+
+
+def test_reload_returns_hash(monkeypatch):
+    """reload_system_prompt() returns the SHA-256 hash of the active prompt."""
+    monkeypatch.setenv("RAGPIPE_SYSTEM_PROMPT", "Hash me")
+    mod = _reload()
+    result = mod.reload_system_prompt()
+    assert result["hash"] == hashlib.sha256(b"Hash me").hexdigest()

@@ -54,6 +54,36 @@ def _load_system_prompt() -> str:
 SYSTEM_PROMPT = _load_system_prompt()
 SYSTEM_PROMPT_HASH = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()
 
+
+def reload_system_prompt() -> dict:
+    """Reload the system prompt from file/env/default. Returns status dict."""
+    global SYSTEM_PROMPT, SYSTEM_PROMPT_HASH
+    old_hash = SYSTEM_PROMPT_HASH
+    SYSTEM_PROMPT = _load_system_prompt()
+    SYSTEM_PROMPT_HASH = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()
+
+    path = os.environ.get("RAGPIPE_SYSTEM_PROMPT_FILE")
+    if path:
+        source = f"file:{path}"
+    elif os.environ.get("RAGPIPE_SYSTEM_PROMPT"):
+        source = "env:RAGPIPE_SYSTEM_PROMPT"
+    else:
+        source = "default"
+
+    changed = old_hash != SYSTEM_PROMPT_HASH
+    if changed:
+        log.info("System prompt reloaded (source=%s, hash=%s)", source, SYSTEM_PROMPT_HASH[:16])
+    else:
+        log.info("System prompt unchanged (source=%s, hash=%s)", source, SYSTEM_PROMPT_HASH[:16])
+
+    return {
+        "status": "reloaded",
+        "changed": changed,
+        "hash": SYSTEM_PROMPT_HASH,
+        "source": source,
+    }
+
+
 # Reranker minimum score — below this, chunks are considered low-confidence.
 # Unlike a hard stop, we still proceed to the LLM with empty context and
 # let the model answer from general knowledge with the ⚠️ prefix.
