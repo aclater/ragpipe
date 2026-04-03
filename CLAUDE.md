@@ -30,21 +30,33 @@ ragpipe/
   docstore.py      — Postgres/SQLite document store
 tests/
   test_grounding.py  — 30 tests
-  test_docstore.py   — 19 tests
+  test_docstore.py   — 25 tests (backends + cache layer)
   test_reranker.py   — 9 tests
   test_models.py     — 7 tests (embedder + reranker ONNX wrappers)
 ```
 
 ## Key design decisions
 - ONNX Runtime directly (no fastembed) — 708 MB RSS vs 4.1 GB, 370ms startup
+- asyncpg connection pool (2-8 conns) for async hydration, psycopg2 retained for sync ingestion
+- LRU chunk cache (2,048 entries) — 55% faster repeated queries, invalidated on upsert/delete
 - Qdrant stores vectors + reference payloads only — no text
 - Full chunk text lives in Postgres (or SQLite for dev)
 - Citations are parsed and validated by code, not by the LLM
 - Audit log captures grounding decisions without logging text content
 - System prompt is overridable via RAGPIPE_SYSTEM_PROMPT_FILE or RAGPIPE_SYSTEM_PROMPT
-- All blocking I/O runs in a 4-worker thread pool
+- Hydration runs as native async (no thread pool hop), embedding/reranking still in thread pool
 - ONNX Runtime threads capped at 4, CPU memory arenas disabled
 - Models downloaded from HuggingFace Hub, cached in RAGPIPE_MODEL_CACHE
+
+## Known issues
+- Streaming responses (Open WebUI) bypass citation validation and audit logging — full response text is never available for parsing
+
+## Performance history
+| Change | Impact |
+|--------|--------|
+| Drop fastembed → raw ONNX Runtime | 83% memory reduction (4.1 GB → 708 MB), 5x faster startup, ~17% faster avg query |
+| asyncpg connection pool | Native async hydration, frees thread pool worker per request |
+| LRU chunk cache (2,048 entries) | 55% faster repeated queries (eliminates Postgres round-trip on cache hit) |
 
 ## Running tests
 ```bash

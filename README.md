@@ -99,13 +99,23 @@ If neither prompt variable is set, ragpipe uses a built-in corpus-preferring gro
 
 Benchmarked against the legacy fastembed-based implementation with identical queries on the same corpus (4,831 documents):
 
-| Metric | Legacy (fastembed) | ragpipe (ONNX Runtime) |
-|--------|-------------------|----------------------|
+| Metric | Legacy (fastembed + psycopg2) | ragpipe (ONNX RT + asyncpg + cache) |
+|--------|------|-------|
 | Memory (RSS) | 4,100 MB | 708 MB |
 | Startup time | ~2s | ~370ms |
 | Embed latency | ~10ms | ~9ms |
 | Rerank (20 docs) | ~6ms | ~6ms |
 | Threads | 130 | 70 |
+| Repeated query (e2e) | ~9.3s | ~4.2s (cache hit) |
+| Cold query avg (16 queries) | 26.5s | 22.1s |
+
+### Optimization history
+
+| Change | Impact |
+|--------|--------|
+| Drop fastembed → raw ONNX Runtime | 83% memory reduction (4.1 GB → 708 MB), 5x faster startup, ~17% faster avg query |
+| asyncpg connection pool | Native async hydration, frees thread pool worker per request |
+| LRU chunk cache (2,048 entries) | 55% faster repeated queries (eliminates Postgres round-trip on cache hit) |
 
 ## API
 
