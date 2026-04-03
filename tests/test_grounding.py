@@ -205,6 +205,40 @@ def test_classify_no_citations_with_context_is_general():
     assert mod.classify_grounding("Just an answer.", [], "full") == "general"
 
 
+def test_classify_negative_finding_is_general():
+    """Citations used to support 'X is not mentioned' should be general, not mixed."""
+    mod = _reload()
+    text = (
+        "Based on the provided documents [a:0], Adam Clater is a colonel. "
+        "There is no evidence of involvement with Palantir. "
+        "⚠️ Not in corpus: Palantir is a data analytics company."
+    )
+    assert mod.classify_grounding(text, [("a", 0)], "full") == "general"
+
+
+def test_classify_negative_finding_various_patterns():
+    """All negative finding patterns should trigger the general classification."""
+    mod = _reload()
+    patterns = [
+        "The documents do not mention any connection",
+        "There is no record of this in the corpus",
+        "This topic is not discussed in the retrieved documents",
+        "No information about this was found",
+        "The NDAA does not contain any reference to this",
+    ]
+    for pattern in patterns:
+        text = f"From [a:0]: context. {pattern}. ⚠️ Not in corpus: general answer."
+        result = mod.classify_grounding(text, [("a", 0)], "full")
+        assert result == "general", f"Pattern '{pattern}' classified as '{result}' instead of 'general'"
+
+
+def test_classify_positive_mixed_not_affected():
+    """Genuine mixed responses (positive claims from both sources) stay mixed."""
+    mod = _reload()
+    text = "According to [a:0], the budget is $500M. ⚠️ Not in corpus: This represents a 10% increase over last year."
+    assert mod.classify_grounding(text, [("a", 0)], "full") == "mixed"
+
+
 def test_corpus_coverage_none():
     mod = _reload()
     assert mod.determine_corpus_coverage([]) == "none"

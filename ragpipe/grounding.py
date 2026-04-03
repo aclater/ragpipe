@@ -210,6 +210,45 @@ def strip_invalid_citations(response_text: str, invalid: list[dict]) -> str:
 
 NOT_IN_CORPUS_MARKER = "⚠️ Not in corpus:"
 
+# Phrases indicating the model found the answer is NOT in the corpus.
+# When these appear alongside citations, the citations are providing
+# background context for a negative finding, not a positive answer.
+_NEGATIVE_FINDING_PATTERNS = [
+    "no evidence",
+    "no mention",
+    "no record",
+    "no information",
+    "not mentioned",
+    "not found",
+    "not referenced",
+    "not discussed",
+    "not included",
+    "not addressed",
+    "does not mention",
+    "does not contain",
+    "does not include",
+    "does not reference",
+    "does not discuss",
+    "does not address",
+    "do not mention",
+    "do not contain",
+    "do not include",
+]
+
+
+def _is_negative_finding(response_text: str) -> bool:
+    """Detect if the response is a negative finding — the model is saying
+    something is NOT in the corpus, using citations only for context.
+
+    Only checks text BEFORE the ⚠️ marker. Negative language inside the
+    warning section is the model explaining why it's using general knowledge,
+    which is normal for genuine mixed responses.
+    """
+    # Only examine the corpus-grounded portion (before the warning marker)
+    marker_pos = response_text.find(NOT_IN_CORPUS_MARKER)
+    corpus_portion = response_text[:marker_pos].lower() if marker_pos >= 0 else response_text.lower()
+    return any(pattern in corpus_portion for pattern in _NEGATIVE_FINDING_PATTERNS)
+
 
 def classify_grounding(
     response_text: str,
@@ -220,19 +259,26 @@ def classify_grounding(
 
     Returns "corpus", "general", or "mixed" based on whether the response
     uses citations and/or the general knowledge marker.
+
+    Special case: when the model cites documents to support a negative
+    finding ("X is not mentioned in the corpus"), the citations are
+    contextual background, not a positive answer. This is classified
+    as "general" rather than "mixed" because the actual answer to the
+    question came from the absence of information, not from the corpus.
     """
     has_citations = len(valid_citations) > 0
     has_general = NOT_IN_CORPUS_MARKER in response_text
 
     if corpus_coverage == "none":
-        # No documents were retrieved — response is entirely general knowledge
         return "general"
     if has_citations and has_general:
+        # Check if this is a negative finding — model cited docs for context
+        # but the actual answer is "not found in corpus"
+        if _is_negative_finding(response_text):
+            return "general"
         return "mixed"
     if has_citations:
         return "corpus"
-    # Model didn't cite anything despite having context — treat as general
-    # since we can't confirm it used the corpus
     return "general"
 
 
