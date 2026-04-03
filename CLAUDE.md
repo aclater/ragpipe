@@ -15,7 +15,7 @@ POST /v1/chat/completions
   → parse citations from response
   → validate against retrieved set + docstore
   → strip invalid citations
-  → classify grounding (corpus / general / mixed)
+  → classify grounding (corpus / general / mixed, with negative finding detection)
   → attach rag_metadata, emit audit log
 ```
 
@@ -31,7 +31,7 @@ ragpipe/
   docstore.py      — Postgres (asyncpg) / SQLite backends + CachedDocstore LRU wrapper
 tests/
   test_admin.py      — 4 tests (reload endpoint auth)
-  test_grounding.py  — 33 tests (prompt, citations, grounding, audit, reload)
+  test_grounding.py  — 36 tests (prompt, citations, grounding, negative findings, audit, reload)
   test_docstore.py   — 25 tests (backends + cache layer)
   test_reranker.py   — 12 tests (enabled/disabled/threshold/model swap)
   test_models.py     — 7 tests (embedder + reranker ONNX wrappers)
@@ -55,8 +55,7 @@ tests/
 
 ## Known issues
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
-- Adversarial queries can produce "mixed" grounding when model cites docs to support a negative finding — prompt tuning issue
-- sovereign_ai query regressed with min score threshold — only 2 chunks pass at -3.02, insufficient for grounding
+- LLM phrasing variance: negative finding classifier depends on recognizable negation patterns before the ⚠️ marker — when the model phrases differently, classification may vary between runs
 
 ## Performance history
 | Change | Impact |
@@ -67,11 +66,12 @@ tests/
 | Persistent httpx client | Saves 1-5ms/request TCP handshake overhead |
 | Reranker min score threshold (-5) | Filters irrelevant chunks, adversarial queries get clean empty context |
 | Dual-path streaming audit | Streaming responses now audited + validated post-hoc, zero latency impact |
+| Negative finding classifier | Citations supporting "X is not mentioned" classified as general, not mixed |
 
 ## Running tests
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v    # 80 tests
+python -m pytest tests/ -v    # 83 tests
 ruff check && ruff format --check
 ```
 

@@ -127,6 +127,7 @@ Benchmarked against the legacy fastembed-based implementation with identical que
 | Persistent httpx client | Saves 1-5ms/request TCP handshake overhead |
 | Reranker min score threshold (-5) | Filters irrelevant chunks on adversarial/off-topic queries, saves prompt tokens |
 | Dual-path streaming audit | Streaming responses audited + validated post-hoc with zero latency impact |
+| Negative finding classifier | Citations supporting "X is not mentioned" correctly classified as general, not mixed |
 
 ## API
 
@@ -177,13 +178,13 @@ Response:
 ## Known issues
 
 - **Streaming citation stripping**: Streaming responses are audited and validated post-hoc (dual-path accumulation), but invalid citations cannot be stripped because the text has already been delivered to the client. Invalid citations are logged as errors. Non-streaming requests strip invalid citations before delivery.
-- **Adversarial grounding**: Model sometimes cites documents to support a negative finding ("X is not mentioned in..."), which gets classified as `mixed` instead of `general`. This is a prompt tuning issue, not a code bug.
+- **LLM phrasing variance**: The negative finding classifier depends on the model using recognizable negation patterns ("no evidence", "not mentioned", etc.) before the `⚠️` marker. When the model phrases its negative finding differently, the response may be classified as `mixed` instead of `general`. The adversarial tuning agent will address prompt compliance consistency.
 
 ## Development
 
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v    # 80 tests
+python -m pytest tests/ -v    # 83 tests
 ruff check && ruff format --check
 ```
 
