@@ -1,11 +1,10 @@
 """Reranker stage — scores and reorders retrieved chunks.
 
 Runs after Qdrant vector search, before results are passed to the LLM.
-Uses a cross-encoder model via fastembed (ONNX Runtime, CPU-only) to score
+Uses a cross-encoder model via ONNX Runtime (CPU-only) to score
 (query, document) pairs and returns the top_n highest-scoring results.
 
 Default model: Xenova/ms-marco-MiniLM-L-6-v2 (ONNX, 22M, English).
-No PyTorch dependency — fastembed uses ONNX Runtime for lightweight inference.
 """
 
 import logging
@@ -18,22 +17,20 @@ log = logging.getLogger("ragpipe.reranker")
 RERANKER_ENABLED = os.environ.get("RERANKER_ENABLED", "true").lower() in ("true", "1", "yes")
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 RERANKER_TOP_N = int(os.environ.get("RERANKER_TOP_N", "5"))
-ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
 _model = None
 
 
 def _get_model():
-    """Lazy-load the cross-encoder reranker via fastembed."""
+    """Lazy-load the cross-encoder reranker."""
     global _model
     if _model is not None:
         return _model
 
-    from fastembed.rerank.cross_encoder import TextCrossEncoder
+    from ragpipe.models import Reranker
 
-    log.info("Loading reranker model %s (fastembed/ONNX, threads=%d)", RERANKER_MODEL, ONNX_THREADS)
-    _model = TextCrossEncoder(model_name=RERANKER_MODEL, threads=ONNX_THREADS)
-    log.info("Reranker model loaded")
+    _model = Reranker(repo_id=RERANKER_MODEL)
+    _model.load()
     return _model
 
 
@@ -66,13 +63,13 @@ def rerank(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     documents = [r["text"] for r in results]
 
     start = time.monotonic()
-    scores = list(model.rerank(query, documents))
+    scores = model.score(query, documents)
     elapsed_ms = (time.monotonic() - start) * 1000
 
     log.debug("Reranked %d candidates in %.1f ms", len(results), elapsed_ms)
 
     for result, score in zip(results, scores, strict=False):
-        result["reranker_score"] = float(score)
+        result["reranker_score"] = score
 
     ranked = sorted(results, key=lambda r: r["reranker_score"], reverse=True)
     return ranked[:RERANKER_TOP_N]

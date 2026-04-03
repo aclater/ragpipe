@@ -4,21 +4,17 @@ RAG proxy with corpus-preferring grounding and citation validation. Sits between
 
 What makes it different: ragpipe doesn't just inject context — it validates the model's citations against what was actually retrieved, strips hallucinated references, classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
 
+![Architecture](architecture.svg)
+
 ## How it works
 
-```
-Client → ragpipe (:8090) → LLM (:8080)
-              │
-         1. Embed query (fastembed/ONNX)
-         2. Search Qdrant (top-K candidates)
-         3. Hydrate chunk text from Postgres
-         4. Rerank with cross-encoder
-         5. Inject system prompt + context
-         6. Forward to model
-         7. Parse [doc_id:chunk_id] citations
-         8. Validate against retrieved set + docstore
-         9. Classify grounding, emit audit log
-```
+1. **Embed** the user's query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
+2. **Search** Qdrant for top-K candidate vectors (reference payloads only)
+3. **Hydrate** chunk text from Postgres document store
+4. **Rerank** with cross-encoder (ONNX Runtime, MiniLM-L-6-v2)
+5. **Inject** system prompt + context with `[doc_id:chunk_id]` labels
+6. **Forward** to LLM (streaming or non-streaming)
+7. **Post-process**: parse citations, validate against retrieved set + docstore, strip invalid, classify grounding, attach `rag_metadata`, emit audit log
 
 ## Quick start (container)
 
@@ -29,6 +25,12 @@ podman run --rm -p 8090:8090 \
     -e QDRANT_URL=http://host.containers.internal:6333 \
     -e DOCSTORE_URL=postgresql://user:pass@host.containers.internal:5432/db \
     ragpipe
+```
+
+Or pull the published image:
+
+```bash
+podman pull ghcr.io/aclater/ragpipe:main
 ```
 
 ## Quick start (pip)
@@ -62,16 +64,17 @@ All configuration is via environment variables with sensible defaults.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Embedding model (fastembed/ONNX) |
+| `EMBED_MODEL` | `qdrant/bge-base-en-v1.5-onnx-q` | HuggingFace repo for ONNX embedding model |
 | `EMBED_CACHE_SIZE` | `256` | LRU cache size for query embeddings |
-| `ONNX_THREADS` | `4` | ONNX Runtime thread count per model |
+| `ONNX_THREADS` | `4` | ONNX Runtime intra-op thread count per model |
+| `RAGPIPE_MODEL_CACHE` | `~/.cache/ragpipe` | Local directory for downloaded ONNX models |
 
 ### Reranker
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RERANKER_ENABLED` | `true` | Enable/disable cross-encoder reranking |
-| `RERANKER_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | Cross-encoder model (fastembed/ONNX) |
+| `RERANKER_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | HuggingFace repo for ONNX cross-encoder model |
 | `RERANKER_TOP_N` | `5` | Results to keep after reranking |
 
 ### Document store
@@ -92,11 +95,23 @@ All configuration is via environment variables with sensible defaults.
 
 If neither prompt variable is set, ragpipe uses a built-in corpus-preferring grounding prompt that instructs the model to cite documents as `[doc_id:chunk_id]` and prefix general knowledge with `⚠️ Not in corpus:`.
 
+## Performance
+
+Benchmarked against the legacy fastembed-based implementation with identical queries on the same corpus (4,831 documents):
+
+| Metric | Legacy (fastembed) | ragpipe (ONNX Runtime) |
+|--------|-------------------|----------------------|
+| Memory (RSS) | 4,100 MB | 708 MB |
+| Startup time | ~2s | ~370ms |
+| Embed latency | ~10ms | ~9ms |
+| Rerank (20 docs) | ~6ms | ~6ms |
+| Threads | 130 | 70 |
+
 ## API
 
 Ragpipe is fully OpenAI-compatible. It intercepts `/v1/chat/completions` and passes through everything else unchanged.
 
-**Added to responses:** A `rag_metadata` field with:
+**Added to non-streaming responses:** A `rag_metadata` field:
 
 ```json
 {
@@ -106,11 +121,21 @@ Ragpipe is fully OpenAI-compatible. It intercepts `/v1/chat/completions` and pas
 }
 ```
 
+**Streaming responses** include a performance summary block before `[DONE]` with token counts, generation speed, and RAG source info.
+
 **Endpoints:**
 - `POST /v1/chat/completions` — RAG-augmented chat (streaming and non-streaming)
 - `POST /v1/embeddings` — OpenAI-compatible embeddings via the loaded model
 - `GET /health` — health check
 - `* /{path}` — passthrough to model
+
+## Development
+
+```bash
+pip install '.[dev]'
+python -m pytest tests/ -v    # 64 tests
+ruff check && ruff format --check
+```
 
 ## License
 

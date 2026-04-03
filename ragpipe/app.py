@@ -18,7 +18,6 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 
 from ragpipe.grounding import (
@@ -32,6 +31,7 @@ from ragpipe.grounding import (
     strip_invalid_citations,
     validate_citations,
 )
+from ragpipe.models import Embedder
 from ragpipe.reranker import rerank
 
 logging.basicConfig(
@@ -46,14 +46,9 @@ log = logging.getLogger("ragpipe")
 MODEL_URL = os.environ.get("MODEL_URL", "http://127.0.0.1:8080")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION", "documents")
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "qdrant/bge-base-en-v1.5-onnx-q")
 TOP_K = int(os.environ.get("RAG_TOP_K", "20"))
 PROXY_PORT = int(os.environ.get("RAG_PROXY_PORT", "8090"))
-
-# ONNX Runtime thread count — limits per-session thread arenas.
-# Default 0 = all logical cores, which creates excessive per-thread
-# arena overhead. 4 threads is sufficient for a 4-worker thread pool.
-ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
 # Thinking budget — allows the model to reason across retrieved chunks
 # and general knowledge without unconstrained latency
@@ -62,7 +57,7 @@ THINKING_BUDGET = int(os.environ.get("THINKING_BUDGET", "1024"))
 # ── Globals initialized at startup ───────────────────────────────────────────
 
 qdrant: QdrantClient = None
-embedder: TextEmbedding = None
+embedder: Embedder = None
 docstore = None
 _collection_exists: bool = False
 
@@ -89,9 +84,9 @@ def startup():
             COLLECTION_NAME,
         )
 
-    # fastembed uses ONNX Runtime (CPU-only) — no PyTorch, no GPU segfault risk
-    log.info("Loading embedding model: %s (fastembed/ONNX, threads=%d)", EMBED_MODEL, ONNX_THREADS)
-    embedder = TextEmbedding(EMBED_MODEL, threads=ONNX_THREADS)
+    log.info("Loading embedding model: %s (ONNX Runtime)", EMBED_MODEL)
+    embedder = Embedder(repo_id=EMBED_MODEL)
+    embedder.load()
 
     from ragpipe.docstore import create_docstore
 
@@ -126,8 +121,8 @@ def shutdown():
 @functools.lru_cache(maxsize=EMBED_CACHE_SIZE)
 def _embed_query(query: str) -> tuple:
     """Embed a query string, caching the result. Returns tuple for hashability."""
-    vectors = list(embedder.embed([query]))
-    return tuple(vectors[0].tolist())
+    vec = embedder.embed_one(query)
+    return tuple(vec.tolist())
 
 
 def _check_collection() -> bool:
@@ -475,7 +470,7 @@ async def embeddings(request: Request):
         return JSONResponse({"error": "No input provided"}, status_code=400)
 
     loop = asyncio.get_event_loop()
-    vectors = await loop.run_in_executor(_executor, lambda: [v.tolist() for v in embedder.embed(texts)])
+    vectors = await loop.run_in_executor(_executor, lambda: embedder.embed(texts).tolist())
 
     return JSONResponse(
         {

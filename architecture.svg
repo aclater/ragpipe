@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #1a1a2e; }
+      .box { fill: #16213e; stroke: #e2e8f0; }
+      .box-highlight { fill: #1a365d; stroke: #63b3ed; }
+      .box-external { fill: #1c1c1c; stroke: #718096; }
+      .text { fill: #e2e8f0; }
+      .text-dim { fill: #a0aec0; }
+      .text-accent { fill: #63b3ed; }
+      .arrow { stroke: #63b3ed; fill: #63b3ed; }
+      .arrow-dim { stroke: #718096; fill: #718096; }
+      .divider { stroke: #2d3748; }
+      .label-bg { fill: #2d3748; }
+    }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #ffffff; }
+      .box { fill: #f7fafc; stroke: #2d3748; }
+      .box-highlight { fill: #ebf8ff; stroke: #3182ce; }
+      .box-external { fill: #f9f9f9; stroke: #a0aec0; }
+      .text { fill: #1a202c; }
+      .text-dim { fill: #718096; }
+      .text-accent { fill: #2b6cb0; }
+      .arrow { stroke: #3182ce; fill: #3182ce; }
+      .arrow-dim { stroke: #a0aec0; fill: #a0aec0; }
+      .divider { stroke: #e2e8f0; }
+      .label-bg { fill: #edf2f7; }
+    }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" class="arrow"/>
+    </marker>
+    <marker id="arrowhead-dim" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" class="arrow-dim"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" class="bg" rx="8"/>
+
+  <!-- Title -->
+  <text x="450" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe — request flow</text>
+  <text x="450" y="50" text-anchor="middle" font-size="11" class="text-dim">RAG proxy with corpus-preferring grounding and citation validation</text>
+
+  <!-- Client -->
+  <rect x="350" y="68" width="200" height="36" rx="6" class="box-external"/>
+  <text x="450" y="91" text-anchor="middle" font-weight="600" class="text">Client</text>
+  <text x="450" y="91" text-anchor="middle" font-size="10" class="text-dim" dy="14">curl / Open WebUI / SDK</text>
+
+  <!-- Arrow: Client → ragpipe -->
+  <line x1="450" y1="104" x2="450" y2="130" class="arrow" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="460" y="122" font-size="10" class="text-dim">POST /v1/chat/completions</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- RAGPIPE BOX -->
+  <rect x="40" y="134" width="820" height="370" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.3"/>
+  <text x="60" y="158" font-size="15" font-weight="bold" class="text-accent">ragpipe :8090</text>
+
+  <!-- Step 1: Embed -->
+  <rect x="70" y="172" width="180" height="48" rx="5" class="box"/>
+  <text x="160" y="193" text-anchor="middle" font-weight="600" font-size="12" class="text">1. Embed query</text>
+  <text x="160" y="210" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime · bge-base-en-v1.5</text>
+
+  <!-- Step 2: Search Qdrant -->
+  <rect x="70" y="236" width="180" height="48" rx="5" class="box"/>
+  <text x="160" y="257" text-anchor="middle" font-weight="600" font-size="12" class="text">2. Vector search</text>
+  <text x="160" y="274" text-anchor="middle" font-size="10" class="text-dim">Qdrant · top-K candidates</text>
+
+  <!-- Step 3: Hydrate -->
+  <rect x="70" y="300" width="180" height="48" rx="5" class="box"/>
+  <text x="160" y="321" text-anchor="middle" font-weight="600" font-size="12" class="text">3. Hydrate chunks</text>
+  <text x="160" y="338" text-anchor="middle" font-size="10" class="text-dim">Postgres docstore · batch get</text>
+
+  <!-- Step 4: Rerank -->
+  <rect x="70" y="364" width="180" height="48" rx="5" class="box"/>
+  <text x="160" y="385" text-anchor="middle" font-weight="600" font-size="12" class="text">4. Rerank</text>
+  <text x="160" y="402" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime · MiniLM-L-6-v2</text>
+
+  <!-- Step 5: Inject context -->
+  <rect x="70" y="428" width="180" height="48" rx="5" class="box"/>
+  <text x="160" y="449" text-anchor="middle" font-weight="600" font-size="12" class="text">5. Inject context</text>
+  <text x="160" y="466" text-anchor="middle" font-size="10" class="text-dim">system prompt + [doc:chunk] labels</text>
+
+  <!-- Arrows between left column steps -->
+  <line x1="160" y1="220" x2="160" y2="236" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="160" y1="284" x2="160" y2="300" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="160" y1="348" x2="160" y2="364" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="160" y1="412" x2="160" y2="428" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  <!-- Arrow: Inject → Forward (horizontal) -->
+  <line x1="250" y1="452" x2="380" y2="452" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  <!-- Step 6: Forward to LLM -->
+  <rect x="385" y="428" width="180" height="48" rx="5" class="box"/>
+  <text x="475" y="449" text-anchor="middle" font-weight="600" font-size="12" class="text">6. Forward to LLM</text>
+  <text x="475" y="466" text-anchor="middle" font-size="10" class="text-dim">stream or non-stream</text>
+
+  <!-- Arrow: Forward → Post-process (horizontal) -->
+  <line x1="565" y1="452" x2="640" y2="452" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  <!-- Step 7: Post-process -->
+  <rect x="645" y="370" width="190" height="120" rx="5" class="box"/>
+  <text x="740" y="391" text-anchor="middle" font-weight="600" font-size="12" class="text">7. Post-process</text>
+  <text x="740" y="411" text-anchor="middle" font-size="10" class="text-dim">Parse [doc_id:chunk_id]</text>
+  <text x="740" y="427" text-anchor="middle" font-size="10" class="text-dim">Validate vs retrieved set</text>
+  <text x="740" y="443" text-anchor="middle" font-size="10" class="text-dim">Strip invalid citations</text>
+  <text x="740" y="459" text-anchor="middle" font-size="10" class="text-dim">Classify: corpus/general/mixed</text>
+  <text x="740" y="475" text-anchor="middle" font-size="10" class="text-dim">Attach rag_metadata + audit</text>
+
+  <!-- LRU Cache indicator -->
+  <rect x="270" y="178" width="70" height="20" rx="3" class="label-bg"/>
+  <text x="305" y="192" text-anchor="middle" font-size="9" class="text-accent">LRU cache</text>
+  <line x1="250" y1="190" x2="270" y2="190" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- External services (right side) -->
+
+  <!-- Qdrant -->
+  <rect x="700" y="172" width="140" height="48" rx="5" class="box-external"/>
+  <text x="770" y="193" text-anchor="middle" font-weight="600" font-size="12" class="text">Qdrant</text>
+  <text x="770" y="210" text-anchor="middle" font-size="10" class="text-dim">:6333 · vectors only</text>
+  <line x1="250" y1="260" x2="700" y2="200" class="arrow-dim" stroke-width="1.5" marker-end="url(#arrowhead-dim)"/>
+
+  <!-- Postgres -->
+  <rect x="700" y="250" width="140" height="48" rx="5" class="box-external"/>
+  <text x="770" y="271" text-anchor="middle" font-weight="600" font-size="12" class="text">Postgres</text>
+  <text x="770" y="288" text-anchor="middle" font-size="10" class="text-dim">:5432 · chunk text</text>
+  <line x1="250" y1="324" x2="700" y2="278" class="arrow-dim" stroke-width="1.5" marker-end="url(#arrowhead-dim)"/>
+
+  <!-- LLM -->
+  <rect x="385" y="510" width="180" height="48" rx="5" class="box-external"/>
+  <text x="475" y="531" text-anchor="middle" font-weight="600" font-size="12" class="text">LLM</text>
+  <text x="475" y="548" text-anchor="middle" font-size="10" class="text-dim">:8080 · llama-server</text>
+  <line x1="475" y1="476" x2="475" y2="510" class="arrow-dim" stroke-width="1.5" marker-end="url(#arrowhead-dim)"/>
+
+  <!-- Response arrow back up -->
+  <line x1="740" y1="370" x2="740" y2="134" class="arrow" stroke-width="1.5"/>
+  <line x1="740" y1="134" x2="480" y2="104" class="arrow" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="755" y="160" font-size="10" class="text-dim">Response + rag_metadata</text>
+
+  <!-- Thread pool indicator -->
+  <rect x="70" y="485" width="180" height="16" rx="3" class="label-bg"/>
+  <text x="160" y="497" text-anchor="middle" font-size="9" class="text-dim">ThreadPoolExecutor (4 workers) · blocking I/O</text>
+
+  <!-- Footer: specs -->
+  <text x="450" y="590" text-anchor="middle" font-size="11" class="text-dim">ONNX Runtime (CPU) · 708 MB RSS · 4 threads/model · LRU embed cache (256)</text>
+  <text x="450" y="608" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0</text>
+</svg>

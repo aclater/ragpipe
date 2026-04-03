@@ -14,7 +14,9 @@ dependencies = [
     "uvicorn",
     "httpx",
     "qdrant-client",
-    "fastembed",
+    "onnxruntime",
+    "tokenizers",
+    "huggingface-hub",
     "numpy",
     "psycopg2-binary",
 ]

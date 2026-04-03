@@ -9,8 +9,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir .
 
 # Pre-download ONNX models so first request isn't slow
-RUN python3 -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-base-en-v1.5')" && \
-    python3 -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder('Xenova/ms-marco-MiniLM-L-6-v2')"
+RUN python3 -c "from ragpipe.models import Embedder; Embedder().load()" && \
+    python3 -c "from ragpipe.models import Reranker; Reranker().load()"
 
 USER 1001
 EXPOSE 8090
