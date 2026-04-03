@@ -159,13 +159,13 @@ def _search_qdrant_sync(query: str) -> list[dict]:
         return []
 
 
-def _hydrate_sync(refs: list[dict]) -> list[dict]:
-    """Synchronous docstore hydration — runs in thread pool."""
+async def _hydrate(refs: list[dict]) -> list[dict]:
+    """Async docstore hydration — uses asyncpg pool, no thread pool needed."""
     if not refs:
         return []
 
     lookup_keys = [(r["doc_id"], r["chunk_id"]) for r in refs]
-    texts = docstore.get_chunks(lookup_keys)
+    texts = await docstore.get_chunks_async(lookup_keys)
 
     hydrated = []
     for ref in refs:
@@ -208,7 +208,7 @@ async def retrieve_and_rerank(user_query: str) -> tuple[list[dict], list[dict]]:
     loop = asyncio.get_event_loop()
 
     refs = await loop.run_in_executor(_executor, _search_qdrant_sync, user_query)
-    candidates = await loop.run_in_executor(_executor, _hydrate_sync, refs)
+    candidates = await _hydrate(refs)
     ranked = await loop.run_in_executor(_executor, _rerank_sync, user_query, candidates)
     return ranked, candidates
 

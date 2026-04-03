@@ -1,4 +1,4 @@
-"""Tests for the document store — both SQLite and Postgres backends.
+"""Tests for the document store — both SQLite and Postgres backends, plus cache layer.
 
 SQLite tests run unconditionally. Postgres tests require a live database
 and are skipped if DOCSTORE_URL is not set or the connection fails.
@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from ragpipe.docstore import SQLiteDocstore, create_docstore
+from ragpipe.docstore import CachedDocstore, SQLiteDocstore, create_docstore
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ from ragpipe.docstore import SQLiteDocstore, create_docstore
 def sqlite_store(tmp_path):
     store = SQLiteDocstore(str(tmp_path / "test.db"))
     store.init_schema()
-    return store
+    return CachedDocstore(store, maxsize=100)
 
 
 @pytest.fixture
@@ -29,11 +29,13 @@ def pg_store():
         store = PostgresDocstore(url)
         store.init_schema()
         # Clean up test data
-        with store._conn.cursor() as cur:
+        conn = store._get_sync_conn()
+        with conn.cursor() as cur:
             cur.execute("DELETE FROM chunks WHERE doc_id LIKE 'test-%'")
-        yield store
+        cached = CachedDocstore(store, maxsize=100)
+        yield cached
         # Clean up after
-        with store._conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute("DELETE FROM chunks WHERE doc_id LIKE 'test-%'")
     except Exception:
         pytest.skip("Postgres not available")
@@ -124,3 +126,100 @@ def test_factory_sqlite(tmp_path):
     store.upsert_chunk("test-factory", 0, "works", "f.md")
     assert store.get_chunk("test-factory", 0) == "works"
     os.environ.pop("DOCSTORE_SQLITE_PATH", None)
+
+
+# ── Cache tests ──────────────────────────────────────────────────────────────
+
+
+def test_cache_hit_on_second_get(tmp_path):
+    """Second get_chunk should hit the cache, not the DB."""
+    backend = SQLiteDocstore(str(tmp_path / "cache.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-c1", 0, "cached text", "c.md")
+    store.get_chunk("test-c1", 0)  # miss — populates cache
+    store.get_chunk("test-c1", 0)  # hit
+
+    stats = store.cache_stats
+    assert stats["hits"] >= 1
+    assert stats["size"] == 1
+
+
+def test_cache_batch_get_partial_hit(tmp_path):
+    """Batch get with some cached and some not should only query DB for misses."""
+    backend = SQLiteDocstore(str(tmp_path / "partial.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-p1", 0, "text 0", "p.md")
+    store.upsert_chunk("test-p1", 1, "text 1", "p.md")
+    store.upsert_chunk("test-p1", 2, "text 2", "p.md")
+
+    # Prime cache with chunk 0 only
+    store.get_chunk("test-p1", 0)
+
+    # Batch get all three — chunk 0 should be cached, 1 and 2 fetched
+    result = store.get_chunks([("test-p1", 0), ("test-p1", 1), ("test-p1", 2)])
+    assert len(result) == 3
+    assert result[("test-p1", 0)] == "text 0"
+
+
+def test_cache_invalidated_on_upsert(tmp_path):
+    """Upsert should update the cache so stale data is never returned."""
+    backend = SQLiteDocstore(str(tmp_path / "inval.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-inv", 0, "v1", "i.md")
+    assert store.get_chunk("test-inv", 0) == "v1"
+
+    store.upsert_chunk("test-inv", 0, "v2", "i.md")
+    assert store.get_chunk("test-inv", 0) == "v2"
+
+
+def test_cache_invalidated_on_delete(tmp_path):
+    """Delete should evict all chunks for the doc from cache."""
+    backend = SQLiteDocstore(str(tmp_path / "del.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunks([{"doc_id": "test-cdel", "chunk_id": i, "text": f"t{i}", "source": "d.md"} for i in range(3)])
+    # Prime cache
+    for i in range(3):
+        store.get_chunk("test-cdel", i)
+    assert store.cache_stats["size"] == 3
+
+    store.delete_doc("test-cdel")
+    assert store.cache_stats["size"] == 0
+    assert store.get_chunk("test-cdel", 0) is None
+
+
+def test_cache_evicts_lru(tmp_path):
+    """Cache should evict least-recently-used entries when full."""
+    backend = SQLiteDocstore(str(tmp_path / "lru.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=3)
+
+    for i in range(5):
+        store.upsert_chunk("test-lru", i, f"text {i}", "l.md")
+        store.get_chunk("test-lru", i)  # populate cache
+
+    # Only last 3 should be cached
+    assert store.cache_stats["size"] == 3
+
+
+@pytest.mark.asyncio
+async def test_cache_async_get(tmp_path):
+    """get_chunks_async should use the cache layer."""
+    backend = SQLiteDocstore(str(tmp_path / "async.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-async", 0, "async text", "a.md")
+    # Prime cache
+    store.get_chunk("test-async", 0)
+
+    result = await store.get_chunks_async([("test-async", 0)])
+    assert result[("test-async", 0)] == "async text"
+    assert store.cache_stats["hits"] >= 2
