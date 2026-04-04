@@ -7,11 +7,14 @@ citation validation and grounding classification.
 """
 
 import asyncio
+import collections
 import functools
+import hashlib
 import json
 import logging
 import os
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -50,6 +53,7 @@ QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION", "documents")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "qdrant/bge-base-en-v1.5-onnx-q")
 TOP_K = int(os.environ.get("RAG_TOP_K", "20"))
+QDRANT_SCORE_THRESHOLD = float(os.environ.get("QDRANT_SCORE_THRESHOLD", "0.3"))
 PROXY_PORT = int(os.environ.get("RAG_PROXY_PORT", "8090"))
 
 # Thinking budget — allows the model to reason across retrieved chunks
@@ -74,6 +78,14 @@ _router = None
 
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
+
+# Qdrant result cache — skips the HTTP round-trip for repeated queries
+QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
+
+# Qdrant result cache — OrderedDict-based LRU keyed by (query_hash, collection).
+# Thread-safe via a lock since _search_qdrant_sync runs in the thread pool.
+_qdrant_cache: collections.OrderedDict[tuple[str, str], list[dict]] = collections.OrderedDict()
+_qdrant_cache_lock = threading.Lock()
 
 app = FastAPI()
 
@@ -125,10 +137,12 @@ async def startup():
         log.info("No RAGPIPE_ROUTES_FILE — single-pipeline mode")
 
     log.info(
-        "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d)",
+        "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d, qdrant_cache=%d, score_threshold=%.2f)",
         MODEL_URL,
         THINKING_BUDGET,
         EMBED_CACHE_SIZE,
+        QDRANT_CACHE_SIZE,
+        QDRANT_SCORE_THRESHOLD,
     )
 
 
@@ -170,15 +184,30 @@ def _search_qdrant_sync(
     qdrant_client=None,
     collection: str | None = None,
     top_k: int | None = None,
+    score_threshold: float | None = None,
 ) -> list[dict]:
-    """Synchronous Qdrant search — runs in thread pool."""
+    """Synchronous Qdrant search — runs in thread pool.
+
+    Results are cached per (query_hash, collection) to skip the Qdrant HTTP
+    round-trip on repeated queries. Empty results are NOT cached because the
+    collection may not exist yet (ingestion in progress).
+    """
     qc = qdrant_client or qdrant
     coll = collection or COLLECTION_NAME
     k = top_k or TOP_K
+    threshold = score_threshold if score_threshold is not None else QDRANT_SCORE_THRESHOLD
     try:
         # Check collection exists (only for the global client)
         if qc is qdrant and not _check_collection():
             return []
+
+        # Check the LRU cache before hitting Qdrant
+        cache_key = (hashlib.sha256(query.encode()).hexdigest(), coll)
+        with _qdrant_cache_lock:
+            if cache_key in _qdrant_cache:
+                _qdrant_cache.move_to_end(cache_key)
+                log.debug("Qdrant cache hit: collection=%s", coll)
+                return _qdrant_cache[cache_key]
 
         query_vector = list(_embed_query(query))
         results = qc.query_points(
@@ -186,12 +215,24 @@ def _search_qdrant_sync(
             query=query_vector,
             limit=k,
             with_payload=True,
+            score_threshold=threshold,
         )
 
         if not results.points:
             return []
 
-        return [point.payload for point in results.points if point.payload.get("doc_id")]
+        payloads = [point.payload for point in results.points if point.payload.get("doc_id")]
+
+        # Cache non-empty results — empty results are not cached because
+        # the collection may have been created after the last check
+        if payloads:
+            with _qdrant_cache_lock:
+                _qdrant_cache[cache_key] = payloads
+                _qdrant_cache.move_to_end(cache_key)
+                while len(_qdrant_cache) > QDRANT_CACHE_SIZE:
+                    _qdrant_cache.popitem(last=False)
+
+        return payloads
     except Exception:
         log.exception("Qdrant search failed")
         return []
@@ -261,6 +302,7 @@ async def retrieve_and_rerank(
             "qdrant_client": pipeline.qdrant,
             "collection": pipeline.config.qdrant_collection or COLLECTION_NAME,
             "top_k": pipeline.config.top_k,
+            "score_threshold": pipeline.config.qdrant_score_threshold,
         }
         rerank_kwargs = {
             "min_score": pipeline.config.reranker_min_score,

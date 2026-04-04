@@ -93,6 +93,11 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
     When a docstore is provided, chunk 0 of each referenced document is
     fetched and prepended as a document header so the model can identify
     what the document is (e.g. its title or short title).
+
+    NOTE: Output order is deterministic (preserves reranker sort order) and
+    contains no timestamps, random values, or variable whitespace. This is
+    intentional — identical retrieval results produce byte-identical context,
+    maximizing llama-server KV cache prefix reuse.
     """
     if not ranked_chunks:
         return ""
@@ -134,6 +139,11 @@ def build_system_message(context: str, *, system_prompt: str | None = None) -> s
     Args:
         context: Formatted chunk text with citation labels.
         system_prompt: Override the global SYSTEM_PROMPT for this request.
+
+    NOTE: The system prompt is cached at module level (not re-read per request)
+    and this template uses no timestamps, random values, or variable whitespace.
+    Identical context input produces byte-identical output, maximizing
+    llama-server KV cache prefix reuse.
     """
     prompt = system_prompt or SYSTEM_PROMPT
     if context:

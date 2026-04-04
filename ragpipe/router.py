@@ -37,6 +37,7 @@ class RouteConfig:
     reranker_min_score: float = -5.0
     reranker_top_n: int = 5
     top_k: int = 20
+    qdrant_score_threshold: float | None = None
     rag_enabled: bool = True
 
 
@@ -210,6 +211,9 @@ def load_routes_config(path: str) -> tuple[list[RouteConfig], float, str | None]
         if not model_url:
             raise ValueError(f"Route '{name}' must specify model_url")
 
+        score_thresh_raw = cfg.get("qdrant_score_threshold")
+        score_thresh = float(score_thresh_raw) if score_thresh_raw is not None else None
+
         routes.append(
             RouteConfig(
                 name=name,
@@ -223,6 +227,7 @@ def load_routes_config(path: str) -> tuple[list[RouteConfig], float, str | None]
                 reranker_min_score=float(cfg.get("reranker_min_score", -5)),
                 reranker_top_n=int(cfg.get("reranker_top_n", 5)),
                 top_k=int(cfg.get("top_k", 20)),
+                qdrant_score_threshold=score_thresh,
                 rag_enabled=cfg.get("rag_enabled", True),
             )
         )
