@@ -86,13 +86,23 @@ ruff check && ruff format --check
 ```
 
 ## Container image
+
+Two variants are published, both UBI9 Python 3.11, models pre-downloaded, non-root (USER 1001):
+
+| Variant | Tag | Containerfile | ONNX Runtime package | GPU support |
+|---------|-----|---------------|---------------------|-------------|
+| CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | None (CPU only) |
+| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-rocm` (from AMD repo) | MIGraphXExecutionProvider |
+
 ```bash
-podman build -t ragpipe .
-# Or pull published: ghcr.io/aclater/ragpipe:main
+# CPU variant
+podman build -t ragpipe -f Containerfile .
+
+# ROCm variant (AMD GPU)
+podman build -t ragpipe-rocm -f Containerfile.rocm .
 ```
 
-Image is UBI9 Python 3.11, pinned to digest. Models pre-downloaded at build time.
-Runs as non-root (USER 1001).
+The ROCm quadlet requires `/dev/kfd` + `/dev/dri` passthrough, `HSA_OVERRIDE_GFX_VERSION=11.5.1`, and `SecurityLabelDisable=true` for SELinux `/dev/kfd` access.
 
 
 ## GPU acceleration
