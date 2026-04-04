@@ -97,24 +97,33 @@ _qdrant_cache_lock = threading.Lock()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     global qdrant, embedder, docstore, _collection_exists, _http_client, _router
+    # Qdrant — deferred; RAG context unavailable until Qdrant is reachable
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
-    qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
-
-    collections = [c.name for c in qdrant.get_collections().collections]
-    _collection_exists = COLLECTION_NAME in collections
-    if not _collection_exists:
-        log.warning(
-            "Collection '%s' not found in Qdrant — RAG context will be empty until documents are ingested",
-            COLLECTION_NAME,
-        )
+    try:
+        qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
+        collections = [c.name for c in qdrant.get_collections().collections]
+        _collection_exists = COLLECTION_NAME in collections
+        if not _collection_exists:
+            log.warning(
+                "Collection '%s' not found in Qdrant — RAG context will be empty until documents are ingested",
+                COLLECTION_NAME,
+            )
+    except Exception:
+        log.warning("Qdrant unavailable at %s — will retry on first request", QDRANT_URL)
+        qdrant = None
 
     log.info("Loading embedding model: %s (ONNX Runtime)", EMBED_MODEL)
     embedder = Embedder(repo_id=EMBED_MODEL)
     embedder.load()
 
+    # Docstore — deferred; schema creation retried on first use if Postgres is down
     from ragpipe.docstore import create_docstore
 
-    docstore = create_docstore()
+    try:
+        docstore = create_docstore()
+    except Exception:
+        log.warning("Docstore unavailable — will retry on first request")
+        docstore = None
 
     # Warm up the reranker so first request isn't slow
     try:
@@ -189,11 +198,19 @@ def _embed_query_normalized(query: str) -> tuple:
 
 def _check_collection() -> bool:
     """Check if the Qdrant collection exists, with caching."""
-    global _collection_exists
+    global _collection_exists, qdrant
     if _collection_exists:
         return True
+    if qdrant is None:
+        try:
+            qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
+        except Exception:
+            return False
     # Re-check — ingestion may have created it since startup
-    collections = [c.name for c in qdrant.get_collections().collections]
+    try:
+        collections = [c.name for c in qdrant.get_collections().collections]
+    except Exception:
+        return False
     _collection_exists = COLLECTION_NAME in collections
     return _collection_exists
 
@@ -263,7 +280,17 @@ async def _hydrate(refs: list[dict], *, ds=None) -> list[dict]:
     if not refs:
         return []
 
+    global docstore
     effective_ds = ds or docstore
+    if effective_ds is None:
+        from ragpipe.docstore import create_docstore
+
+        try:
+            docstore = create_docstore()
+            effective_ds = docstore
+        except Exception:
+            log.warning("Docstore still unavailable — returning results without chunk text")
+            return []
     lookup_keys = [(r["doc_id"], r["chunk_id"]) for r in refs]
     texts = await effective_ds.get_chunks_async(lookup_keys)
 

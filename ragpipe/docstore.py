@@ -69,6 +69,7 @@ class PostgresDocstore(DocstoreBackend):
         self._pool = None
         # Sync connection for init_schema and upsert (ingestion path)
         self._sync_conn = None
+        self._schema_ready = False
 
     def _get_sync_conn(self):
         if self._sync_conn is None:
@@ -78,7 +79,10 @@ class PostgresDocstore(DocstoreBackend):
             self._sync_conn.autocommit = True
         return self._sync_conn
 
-    def init_schema(self) -> None:
+    def _ensure_schema(self) -> None:
+        """Create tables if not already confirmed to exist."""
+        if self._schema_ready:
+            return
         conn = self._get_sync_conn()
         with conn.cursor() as cur:
             cur.execute("""
@@ -91,6 +95,10 @@ class PostgresDocstore(DocstoreBackend):
                     PRIMARY KEY (doc_id, chunk_id)
                 )
             """)
+        self._schema_ready = True
+
+    def init_schema(self) -> None:
+        self._ensure_schema()
 
     def upsert_chunk(self, doc_id: str, chunk_id: int, text: str, source: str) -> None:
         now = datetime.now(UTC).isoformat()
@@ -157,6 +165,8 @@ class PostgresDocstore(DocstoreBackend):
                 min_size=2,
                 max_size=8,
             )
+        if not self._schema_ready:
+            self._ensure_schema()
 
     async def get_chunks_async(self, refs: list[tuple[str, int]]) -> dict[tuple[str, int], str]:
         """Async batch get — used by the query hot path."""
@@ -406,7 +416,10 @@ def create_docstore(backend: str | None = None, *, url: str | None = None) -> Ca
         store = SQLiteDocstore(DOCSTORE_SQLITE_PATH)
     else:
         raise ValueError(f"Unknown DOCSTORE_BACKEND: {backend}")
-    store.init_schema()
+    try:
+        store.init_schema()
+    except Exception:
+        log.warning("Docstore schema init failed (backend may be unavailable) — will retry on first request")
     cached = CachedDocstore(store, maxsize=CHUNK_CACHE_SIZE)
     log.info("Docstore initialized: %s (cache=%d)", backend, CHUNK_CACHE_SIZE)
     return cached
