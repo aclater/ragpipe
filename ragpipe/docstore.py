@@ -56,9 +56,6 @@ class DocstoreBackend(ABC):
     def delete_doc(self, doc_id: str) -> None:
         """Delete all chunks for a document."""
 
-    def close(self) -> None:
-        """Release database connections. Override in subclasses."""
-
 
 class PostgresDocstore(DocstoreBackend):
     """Async Postgres backend using asyncpg with connection pooling.
@@ -193,7 +190,7 @@ class PostgresDocstore(DocstoreBackend):
 
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(self._pool.close())
+                self._close_task = loop.create_task(self._pool.close())
             except RuntimeError:
                 # No running loop — close synchronously via new loop
                 asyncio.run(self._pool.close())

@@ -15,7 +15,9 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
@@ -67,8 +69,12 @@ embedder: Embedder = None
 docstore = None
 _collection_exists: bool = False
 
-# Thread pool for blocking I/O (embedder.encode, reranker)
-_executor = ThreadPoolExecutor(max_workers=4)
+# Separate thread pools for embedding and reranking so they don't
+# compete under concurrent requests. Embedding feeds Qdrant search;
+# reranking runs after hydration — keeping them independent prevents
+# reranking from blocking the next request's embedding.
+_embed_executor = ThreadPoolExecutor(max_workers=2)
+_rerank_executor = ThreadPoolExecutor(max_workers=2)
 
 # Persistent httpx client — reuses TCP connections across requests
 _http_client: httpx.AsyncClient = None
@@ -87,11 +93,8 @@ QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
 _qdrant_cache: collections.OrderedDict[tuple[str, str], list[dict]] = collections.OrderedDict()
 _qdrant_cache_lock = threading.Lock()
 
-from contextlib import asynccontextmanager
-
-
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     global qdrant, embedder, docstore, _collection_exists, _http_client, _router
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
@@ -156,7 +159,8 @@ async def lifespan(app: FastAPI):
         docstore.close()
     if qdrant:
         qdrant.close()
-    _executor.shutdown(wait=False)
+    _embed_executor.shutdown(wait=False)
+    _rerank_executor.shutdown(wait=False)
     log.info("Ragpipe shut down")
 
 
@@ -168,9 +172,18 @@ app = FastAPI(lifespan=lifespan)
 
 @functools.lru_cache(maxsize=EMBED_CACHE_SIZE)
 def _embed_query(query: str) -> tuple:
-    """Embed a query string, caching the result. Returns tuple for hashability."""
+    """Embed a query string, caching the result. Returns tuple for hashability.
+
+    The key is normalized (strip + lower) so trivial whitespace/case
+    differences don't waste cache slots or re-compute embeddings.
+    """
     vec = embedder.embed_one(query)
     return tuple(vec.tolist())
+
+
+def _embed_query_normalized(query: str) -> tuple:
+    """Normalize query before cache lookup — strip whitespace, lowercase."""
+    return _embed_query(query.strip().lower())
 
 
 def _check_collection() -> bool:
@@ -215,7 +228,7 @@ def _search_qdrant_sync(
                 log.debug("Qdrant cache hit: collection=%s", coll)
                 return _qdrant_cache[cache_key]
 
-        query_vector = list(_embed_query(query))
+        query_vector = list(_embed_query_normalized(query))
         results = qc.query_points(
             collection_name=coll,
             query=query_vector,
@@ -320,9 +333,9 @@ async def retrieve_and_rerank(
         rerank_kwargs = {}
         ds = None
 
-    refs = await loop.run_in_executor(_executor, lambda: _search_qdrant_sync(user_query, **search_kwargs))
+    refs = await loop.run_in_executor(_embed_executor, lambda: _search_qdrant_sync(user_query, **search_kwargs))
     candidates = await _hydrate(refs, ds=ds)
-    ranked = await loop.run_in_executor(_executor, lambda: _rerank_sync(user_query, candidates, **rerank_kwargs))
+    ranked = await loop.run_in_executor(_rerank_executor, lambda: _rerank_sync(user_query, candidates, **rerank_kwargs))
     return ranked, candidates
 
 
@@ -566,7 +579,7 @@ async def chat_completions(request: Request):
         if user_msg:
             import numpy as np
 
-            query_vec = np.array(_embed_query(user_msg))
+            query_vec = np.array(_embed_query_normalized(user_msg))
             route_name, route_score = _router.classify(query_vec)
             pipeline = _router.get_pipeline(route_name)
             retrieval_ctx_extra = {"route_name": route_name, "route_score": route_score}
@@ -684,7 +697,7 @@ async def embeddings(request: Request):
         return JSONResponse({"error": "No input provided"}, status_code=400)
 
     loop = asyncio.get_running_loop()
-    vectors = await loop.run_in_executor(_executor, lambda: embedder.embed(texts).tolist())
+    vectors = await loop.run_in_executor(_embed_executor, lambda: embedder.embed(texts).tolist())
 
     return JSONResponse(
         {
@@ -750,7 +763,7 @@ async def classify_query(request: Request):
 
     import numpy as np
 
-    query_vec = np.array(_embed_query(query))
+    query_vec = np.array(_embed_query_normalized(query))
     route_name, route_score = _router.classify(query_vec)
     all_scores = _router.all_scores(query_vec)
 
