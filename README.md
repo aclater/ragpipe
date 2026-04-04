@@ -16,7 +16,7 @@ What makes it different: ragpipe classifies queries semantically and routes them
 ## How it works
 
 1. **Classify** the query semantically (cosine similarity, <1ms) and select a route
-2. **Embed** the query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
+2. **Embed** the query (ONNX Runtime, gte-modernbert-base, LRU cached)
 3. **Search** the route's Qdrant collection for top-K candidate vectors
 4. **Hydrate** chunk text from the route's Postgres document store (async, cached)
 5. **Rerank** with cross-encoder (ONNX Runtime, MiniLM-L-6-v2), filter below min score
@@ -74,7 +74,8 @@ All configuration is via environment variables with sensible defaults.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBED_MODEL` | `qdrant/bge-base-en-v1.5-onnx-q` | HuggingFace repo for ONNX embedding model (pre-quantized) |
+| `EMBED_MODEL` | `Alibaba-NLP/gte-modernbert-base` | HuggingFace repo for ONNX embedding model (quantized, 768d) |
+| `ONNX_PAD_LENGTH` | `128` | Fixed padding length for tokenizer — prevents MIGraphX recompilation per input shape |
 | `EMBED_CACHE_SIZE` | `256` | LRU cache size for query embeddings |
 | `ONNX_THREADS` | `4` | ONNX Runtime intra-op thread count per model |
 | `RAGPIPE_MODEL_CACHE` | `~/.cache/ragpipe` | Local directory for downloaded ONNX models |
