@@ -152,3 +152,27 @@ wastes time, breaks builds, and has caused real incidents on this stack.
   explicitly asked — let the package manager resolve current stable.
 - If you cannot verify a version, say so explicitly and ask.
   Do not guess. Do not use what you think the version is.
+
+
+## Repository location
+
+All code, projects, and repositories live exclusively under ~/git/.
+
+- Never clone, create, or initialize a repository anywhere else on this
+  system — not in ~/, not in /tmp, not in ~/Documents, or any other path.
+- Before cloning or creating any repo, verify the target path is under
+  ~/git/. If it is not, stop and correct the path.
+- If you find a repository outside ~/git/, do not work in it. Move it
+  to ~/git/ first, update any remotes if needed, and confirm the old
+  location is removed before proceeding.
+- When referencing local repos, always use ~/git/<reponame> as the path.
+
+
+## User scripts and tools
+
+User scripts and tools live in ~/.local/bin/, not ~/bin/.
+
+- Always install scripts to ~/.local/bin/
+- When referencing or running user scripts, always use ~/.local/bin/<script>
+- Never create or reference scripts in ~/bin/ — that path is not used on
+  this system
