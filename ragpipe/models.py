@@ -21,6 +21,67 @@ log = logging.getLogger("ragpipe.models")
 CACHE_DIR = Path(os.environ.get("RAGPIPE_MODEL_CACHE", Path.home() / ".cache" / "ragpipe"))
 ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
+# Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
+# MIGraphX replaces the removed ROCMExecutionProvider (removed in ORT 1.23).
+# "rocm" is kept as an alias for migraphx for backward compatibility.
+_DEVICE_TO_PROVIDER = {
+    "cuda": "CUDAExecutionProvider",
+    "migraphx": "MIGraphXExecutionProvider",
+    "rocm": "MIGraphXExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+}
+
+# Preferred GPU providers in priority order.
+# MIGraphX (AMD) uses graph-level compilation, no pre-compiled kernels needed.
+# CUDAExecutionProvider for NVIDIA GPUs.
+_GPU_PROVIDERS = ["CUDAExecutionProvider", "MIGraphXExecutionProvider"]
+
+
+def _get_providers() -> list[str]:
+    """Select ONNX Runtime execution providers.
+
+    Priority:
+    1. If RAGPIPE_DEVICE is set, use the corresponding provider (with CPU fallback).
+    2. Otherwise, auto-detect: prefer GPU providers over CPU.
+    3. Always include CPUExecutionProvider as a fallback.
+
+    Returns a list suitable for ``ort.InferenceSession(providers=...)``.
+    """
+    available = set(ort.get_available_providers())
+    forced = os.environ.get("RAGPIPE_DEVICE", "").strip().lower()
+
+    if forced:
+        provider = _DEVICE_TO_PROVIDER.get(forced)
+        if provider is None:
+            log.warning(
+                "RAGPIPE_DEVICE=%r is not recognized (valid: %s); falling back to auto-detect",
+                forced,
+                ", ".join(sorted(_DEVICE_TO_PROVIDER)),
+            )
+        elif provider not in available:
+            log.warning(
+                "RAGPIPE_DEVICE=%r requested %s but it is not available; falling back to CPU",
+                forced,
+                provider,
+            )
+            provider = None
+        else:
+            providers = [provider]
+            if "CPUExecutionProvider" not in providers:
+                providers.append("CPUExecutionProvider")
+            log.info("ONNX providers (forced via RAGPIPE_DEVICE=%s): %s", forced, providers)
+            return providers
+
+    # Auto-detect: pick the first available GPU provider.
+    for gpu in _GPU_PROVIDERS:
+        if gpu in available:
+            providers = [gpu, "CPUExecutionProvider"]
+            log.info("ONNX providers (auto-detected GPU): %s", providers)
+            return providers
+
+    log.info("ONNX providers: [CPUExecutionProvider]")
+    return ["CPUExecutionProvider"]
+
 
 def _session_options() -> ort.SessionOptions:
     """Create ONNX Runtime session options with controlled threading."""
@@ -79,11 +140,12 @@ class Embedder:
     def load(self) -> None:
         """Download and load model + tokenizer."""
         model_dir = _ensure_model(self.repo_id, [self._model_file, self._tokenizer_file])
-        log.info("Loading embedder %s (ONNX, threads=%d)", self.repo_id, ONNX_THREADS)
+        providers = _get_providers()
+        log.info("Loading embedder %s (ONNX, threads=%d, providers=%s)", self.repo_id, ONNX_THREADS, providers)
         self._session = ort.InferenceSession(
             str(model_dir / self._model_file),
             sess_options=_session_options(),
-            providers=["CPUExecutionProvider"],
+            providers=providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
         self._tokenizer.enable_padding()
@@ -145,11 +207,12 @@ class Reranker:
     def load(self) -> None:
         """Download and load model + tokenizer."""
         model_dir = _ensure_model(self.repo_id, [self._model_file, self._tokenizer_file])
-        log.info("Loading reranker %s (ONNX, threads=%d)", self.repo_id, ONNX_THREADS)
+        providers = _get_providers()
+        log.info("Loading reranker %s (ONNX, threads=%d, providers=%s)", self.repo_id, ONNX_THREADS, providers)
         self._session = ort.InferenceSession(
             str(model_dir / self._model_file),
             sess_options=_session_options(),
-            providers=["CPUExecutionProvider"],
+            providers=providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
         self._tokenizer.enable_padding()
