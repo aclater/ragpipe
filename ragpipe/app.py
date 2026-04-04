@@ -93,6 +93,7 @@ QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
 _qdrant_cache: collections.OrderedDict[tuple[str, str], list[dict]] = collections.OrderedDict()
 _qdrant_cache_lock = threading.Lock()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     global qdrant, embedder, docstore, _collection_exists, _http_client, _router
