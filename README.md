@@ -2,7 +2,7 @@
 
 RAG proxy with semantic routing, corpus-preferring grounding, and citation validation. Sits between your client and multiple LLMs, intercepts OpenAI-compatible chat completions, and enriches queries with retrieval-augmented context from Qdrant vector databases backed by Postgres document stores.
 
-What makes it different: ragpipe classifies queries semantically and routes them to the right LLM and RAG backend — keeping data classifications separate across security domains. It validates the model's citations against what was actually retrieved, strips hallucinated references, classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
+What makes it different: ragpipe classifies queries semantically and routes them to the right LLM and RAG backend — keeping data sources isolated across routing domains. It validates the model's citations against what was actually retrieved, strips hallucinated references (non-streaming; streaming citations are validated post-hoc), classifies the grounding mode (corpus/general/mixed), and emits a text-free audit log for observability.
 
 ### Single-pipeline request flow
 ![Request flow](architecture.svg)
