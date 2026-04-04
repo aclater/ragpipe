@@ -196,16 +196,21 @@ def _embed_query_normalized(query: str) -> tuple:
     return _embed_query(query.strip().lower())
 
 
+_qdrant_init_lock = threading.Lock()
+
+
 def _check_collection() -> bool:
     """Check if the Qdrant collection exists, with caching."""
     global _collection_exists, qdrant
     if _collection_exists:
         return True
     if qdrant is None:
-        try:
-            qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
-        except Exception:
-            return False
+        with _qdrant_init_lock:
+            if qdrant is None:
+                try:
+                    qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
+                except Exception:
+                    return False
     # Re-check — ingestion may have created it since startup
     try:
         collections = [c.name for c in qdrant.get_collections().collections]

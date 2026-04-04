@@ -101,6 +101,7 @@ class PostgresDocstore(DocstoreBackend):
         self._ensure_schema()
 
     def upsert_chunk(self, doc_id: str, chunk_id: int, text: str, source: str) -> None:
+        self._ensure_schema()
         now = datetime.now(UTC).isoformat()
         conn = self._get_sync_conn()
         with conn.cursor() as cur:
@@ -115,6 +116,7 @@ class PostgresDocstore(DocstoreBackend):
             )
 
     def upsert_chunks(self, chunks: list[dict]) -> None:
+        self._ensure_schema()
         now = datetime.now(UTC).isoformat()
         conn = self._get_sync_conn()
         with conn.cursor() as cur:
@@ -418,8 +420,7 @@ def create_docstore(backend: str | None = None, *, url: str | None = None) -> Ca
         raise ValueError(f"Unknown DOCSTORE_BACKEND: {backend}")
     try:
         store.init_schema()
+        log.info("Docstore ready: %s (cache=%d)", backend, CHUNK_CACHE_SIZE)
     except Exception:
-        log.warning("Docstore schema init failed (backend may be unavailable) — will retry on first request")
-    cached = CachedDocstore(store, maxsize=CHUNK_CACHE_SIZE)
-    log.info("Docstore initialized: %s (cache=%d)", backend, CHUNK_CACHE_SIZE)
-    return cached
+        log.warning("Docstore created but backend unavailable — will retry on first request: %s", backend)
+    return CachedDocstore(store, maxsize=CHUNK_CACHE_SIZE)
