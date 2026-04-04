@@ -63,7 +63,7 @@
   <text x="480" y="192" text-anchor="middle" font-size="10" class="text-dim">RAGPIPE_ROUTES_FILE · threshold · fallback route</text>
 
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- HARRISON HOST BOX -->
+  <!-- PRIMARY HOST BOX -->
   <rect x="30" y="240" width="430" height="310" rx="8" class="box-host"/>
   <text x="50" y="262" font-size="13" font-weight="bold" class="text-green">host-a (primary)</text>
   <text x="50" y="278" font-size="10" class="text-dim">AMD Ryzen AI Max+ 395 · ROCm · 128 GB</text>
@@ -80,7 +80,7 @@
   <text x="347" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-35B-A3B</text>
   <text x="347" y="349" text-anchor="middle" font-size="10" class="text-dim">Data stays local · top_k=20</text>
 
-  <!-- Harrison services -->
+  <!-- Primary host services -->
   <rect x="55" y="385" width="120" height="40" rx="4" class="box-external"/>
   <text x="115" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
   <text x="115" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
@@ -93,11 +93,11 @@
   <text x="385" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
   <text x="385" y="418" text-anchor="middle" font-size="9" class="text-dim">35B-A3B · ROCm</text>
 
-  <!-- Harrison ragpipe label -->
+  <!-- Primary ragpipe label -->
   <rect x="55" y="445" width="390" height="24" rx="3" class="label-bg"/>
   <text x="250" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · embedder · reranker · chunk cache · asyncpg pool</text>
 
-  <!-- Arrows: Router → Harrison routes -->
+  <!-- Arrows: Router → primary routes -->
   <line x1="420" y1="204" x2="147" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
   <line x1="480" y1="204" x2="347" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
 
@@ -110,7 +110,7 @@
   <line x1="347" y1="363" x2="385" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
 
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- LENNON HOST BOX -->
+  <!-- SECONDARY HOST BOX -->
   <rect x="500" y="240" width="430" height="310" rx="8" class="box-host"/>
   <text x="520" y="262" font-size="13" font-weight="bold" class="text-orange">host-b (secondary)</text>
   <text x="520" y="278" font-size="10" class="text-dim">NVIDIA RTX 4070 Ti · CUDA · 125 GB</text>
@@ -127,7 +127,7 @@
   <text x="817" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-9B</text>
   <text x="817" y="349" text-anchor="middle" font-size="10" class="text-dim">No RAG · 380ms</text>
 
-  <!-- Lennon services -->
+  <!-- Secondary host services -->
   <rect x="525" y="385" width="120" height="40" rx="4" class="box-external"/>
   <text x="585" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
   <text x="585" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
@@ -140,11 +140,11 @@
   <text x="855" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
   <text x="855" y="418" text-anchor="middle" font-size="9" class="text-dim">9B · CUDA</text>
 
-  <!-- Lennon label -->
+  <!-- Secondary label -->
   <rect x="525" y="445" width="390" height="24" rx="3" class="label-bg"/>
   <text x="720" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · independent stack · same corpus (4,831 chunks)</text>
 
-  <!-- Arrows: Router → Lennon routes -->
+  <!-- Arrows: Router → secondary routes -->
   <line x1="540" y1="204" x2="617" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
   <line x1="580" y1="204" x2="817" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
 
