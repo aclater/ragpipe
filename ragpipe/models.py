@@ -148,8 +148,13 @@ class Embedder:
             providers=providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
-        self._tokenizer.enable_padding()
-        self._tokenizer.enable_truncation(max_length=512)
+        # Pad to fixed length so MIGraphX only compiles once per model.
+        # Without this, every unique sequence length triggers a full graph
+        # recompilation (~3 min on gfx1151). 128 tokens covers most queries
+        # and short passages; longer inputs are truncated.
+        self._pad_length = int(os.environ.get("ONNX_PAD_LENGTH", "128"))
+        self._tokenizer.enable_padding(length=self._pad_length)
+        self._tokenizer.enable_truncation(max_length=self._pad_length)
         self._input_names = {inp.name for inp in self._session.get_inputs()}
 
     def embed(self, texts: list[str]) -> np.ndarray:
@@ -215,8 +220,10 @@ class Reranker:
             providers=providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
-        self._tokenizer.enable_padding()
-        self._tokenizer.enable_truncation(max_length=512)
+        # Fixed padding length — same reason as Embedder (MIGraphX recompilation)
+        self._pad_length = int(os.environ.get("ONNX_PAD_LENGTH", "128"))
+        self._tokenizer.enable_padding(length=self._pad_length)
+        self._tokenizer.enable_truncation(max_length=self._pad_length)
         self._input_names = {inp.name for inp in self._session.get_inputs()}
 
     def score(self, query: str, documents: list[str]) -> list[float]:
