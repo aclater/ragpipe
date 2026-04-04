@@ -89,10 +89,10 @@ ruff check && ruff format --check
 
 Two variants are published, both UBI9 Python 3.11, models pre-downloaded, non-root (USER 1001):
 
-| Variant | Tag | Containerfile | ONNX Runtime package | GPU support |
-|---------|-----|---------------|---------------------|-------------|
-| CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | None (CPU only) |
-| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-rocm` (from AMD repo) | MIGraphXExecutionProvider |
+| Variant | Tag | Containerfile | ONNX Runtime package | Base | GPU support |
+|---------|-----|---------------|---------------------|------|-------------|
+| CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | UBI9 Python 3.11 | None (CPU only) |
+| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-rocm` (from AMD repo) | UBI9 Python 3.12 | MIGraphXExecutionProvider |
 
 ```bash
 # CPU variant
