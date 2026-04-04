@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir --break-system-packages . && \
 # Build runs as root; copy models to /opt/ragpipe/models so they're
 # readable by UID 1001 at runtime. Set default RAGPIPE_MODEL_CACHE to match.
 ENV RAGPIPE_MODEL_CACHE=/opt/ragpipe/models
+ENV HF_HOME=/tmp/hf_cache
 RUN python3 -c "from ragpipe.models import Embedder; Embedder().load()" && \
     python3 -c "from ragpipe.models import Reranker; Reranker().load()" && \
     # hf_hub_download creates symlinks to /root/.cache/huggingface — resolve
