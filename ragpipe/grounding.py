@@ -213,10 +213,14 @@ def strip_invalid_citations(response_text: str, invalid: list[dict]) -> str:
     Invalid citations are stripped to prevent misleading the caller,
     but the rest of the response is preserved since it may contain
     legitimate general knowledge content.
+
+    Uses regex with word boundaries to avoid corrupting citations that
+    are substrings of other valid citations (e.g. [abc:1] vs [abc:10]).
     """
     for inv in invalid:
-        pattern = f"[{inv['doc_id']}:{inv['chunk_id']}]"
-        response_text = response_text.replace(pattern, "")
+        # Escape the doc_id (contains hyphens) and use exact bracket matching
+        escaped = re.escape(f"[{inv['doc_id']}:{inv['chunk_id']}]")
+        response_text = re.sub(escaped, "", response_text)
     return response_text
 
 
@@ -300,7 +304,6 @@ def determine_corpus_coverage(ranked_chunks: list[dict]) -> str:
     """Determine corpus coverage based on what retrieval returned.
 
     - "full": reranked chunks are available (normal retrieval)
-    - "partial": some chunks returned but below typical threshold
     - "none": no chunks passed retrieval or reranking
     """
     if not ranked_chunks:
@@ -334,7 +337,6 @@ def query_hash(query_text: str) -> str:
 
 def log_audit(
     q_hash: str,
-    retrieved_chunks: list[dict],
     ranked_chunks: list[dict],
     corpus_coverage: str,
     grounding: str,

@@ -87,11 +87,11 @@ QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
 _qdrant_cache: collections.OrderedDict[tuple[str, str], list[dict]] = collections.OrderedDict()
 _qdrant_cache_lock = threading.Lock()
 
-app = FastAPI()
+from contextlib import asynccontextmanager
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global qdrant, embedder, docstore, _collection_exists, _http_client, _router
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     qdrant = QdrantClient(url=QDRANT_URL, timeout=10)
@@ -145,16 +145,22 @@ async def startup():
         QDRANT_SCORE_THRESHOLD,
     )
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown():
+    # Shutdown
     if _router:
         await _router.close_all()
     if _http_client:
         await _http_client.aclose()
+    if docstore:
+        docstore.close()
     if qdrant:
         qdrant.close()
+    _executor.shutdown(wait=False)
     log.info("Ragpipe shut down")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # ── Retrieval pipeline ───────────────────────────────────────────────────────
@@ -295,7 +301,7 @@ async def retrieve_and_rerank(
     is the full set of hydrated results before reranking, needed for
     citation validation.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     if pipeline is not None:
         search_kwargs = {
@@ -396,6 +402,7 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
         "retrieved_set": retrieved_set,
         "corpus_coverage": corpus_coverage,
         "user_query": user_query,
+        "docstore": effective_ds,
     }
 
 
@@ -424,7 +431,8 @@ def process_response(response_data: dict, ctx: dict) -> dict:
     citations = parse_citations(content)
 
     # Validate each citation against the retrieved set and docstore
-    valid_citations, validation_errors = validate_citations(citations, retrieved_set, docstore)
+    effective_ds = ctx.get("docstore", docstore)
+    valid_citations, validation_errors = validate_citations(citations, retrieved_set, effective_ds)
 
     # Determine citation validation status
     if not citations:
@@ -456,7 +464,6 @@ def process_response(response_data: dict, ctx: dict) -> dict:
     # Audit log — never logs text content
     log_audit(
         q_hash=query_hash(user_query),
-        retrieved_chunks=ranked,
         ranked_chunks=ranked,
         corpus_coverage=corpus_coverage,
         grounding=metadata["grounding"],
@@ -484,7 +491,8 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
     corpus_coverage = ctx.get("corpus_coverage", "none")
 
     citations = parse_citations(content)
-    valid_citations, validation_errors = validate_citations(citations, retrieved_set, docstore)
+    effective_ds = ctx.get("docstore", docstore)
+    valid_citations, validation_errors = validate_citations(citations, retrieved_set, effective_ds)
 
     if not citations:
         citation_status = "pass"
@@ -506,7 +514,6 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
 
     log_audit(
         q_hash=query_hash(user_query),
-        retrieved_chunks=ranked,
         ranked_chunks=ranked,
         corpus_coverage=corpus_coverage,
         grounding=metadata["grounding"],
@@ -676,7 +683,7 @@ async def embeddings(request: Request):
     if not texts:
         return JSONResponse({"error": "No input provided"}, status_code=400)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     vectors = await loop.run_in_executor(_executor, lambda: embedder.embed(texts).tolist())
 
     return JSONResponse(

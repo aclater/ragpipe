@@ -223,3 +223,17 @@ async def test_cache_async_get(tmp_path):
     result = await store.get_chunks_async([("test-async", 0)])
     assert result[("test-async", 0)] == "async text"
     assert store.cache_stats["hits"] >= 2
+
+
+def test_close_cleans_up(tmp_path):
+    """close() should release connections and clear cache."""
+    backend = SQLiteDocstore(str(tmp_path / "close.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-close", 0, "text", "c.md")
+    store.get_chunk("test-close", 0)
+    assert store.cache_stats["size"] == 1
+
+    store.close()
+    assert store.cache_stats["size"] == 0

@@ -56,6 +56,9 @@ class DocstoreBackend(ABC):
     def delete_doc(self, doc_id: str) -> None:
         """Delete all chunks for a document."""
 
+    def close(self) -> None:
+        """Release database connections. Override in subclasses."""
+
 
 class PostgresDocstore(DocstoreBackend):
     """Async Postgres backend using asyncpg with connection pooling.
@@ -181,6 +184,21 @@ class PostgresDocstore(DocstoreBackend):
         with conn.cursor() as cur:
             cur.execute("DELETE FROM chunks WHERE doc_id = %s", (doc_id,))
 
+    def close(self) -> None:
+        if self._sync_conn is not None:
+            self._sync_conn.close()
+            self._sync_conn = None
+        if self._pool is not None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._pool.close())
+            except RuntimeError:
+                # No running loop — close synchronously via new loop
+                asyncio.run(self._pool.close())
+            self._pool = None
+
 
 class SQLiteDocstore(DocstoreBackend):
     def __init__(self, path: str):
@@ -253,6 +271,9 @@ class SQLiteDocstore(DocstoreBackend):
         self._conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
         self._conn.commit()
 
+    def close(self) -> None:
+        self._conn.close()
+
 
 class CachedDocstore:
     """LRU cache wrapper around a DocstoreBackend.
@@ -304,6 +325,10 @@ class CachedDocstore:
         keys_to_remove = [k for k in self._cache if k[0] == doc_id]
         for k in keys_to_remove:
             del self._cache[k]
+
+    def close(self) -> None:
+        self._backend.close()
+        self._cache.clear()
 
     @property
     def cache_stats(self) -> dict:

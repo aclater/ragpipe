@@ -171,6 +171,16 @@ def test_strip_invalid_citations():
     assert "[xyz:5]" not in stripped
 
 
+def test_strip_invalid_citations_substring_safe():
+    """Stripping [abc:1] must not corrupt [abc:10]."""
+    mod = _reload()
+    text = "See [abc-123:1] and [abc-123:10] for details."
+    invalid = [{"doc_id": "abc-123", "chunk_id": 1, "reason": "not_in_retrieved_set"}]
+    stripped = mod.strip_invalid_citations(text, invalid)
+    assert "[abc-123:1]" not in stripped
+    assert "[abc-123:10]" in stripped
+
+
 def test_invalid_citation_does_not_discard_response():
     """Invalid citations are stripped but the response is preserved."""
     mod = _reload()
@@ -279,7 +289,6 @@ def test_audit_log_no_text_content(caplog):
     with caplog.at_level(logging.INFO, logger="ragpipe.audit"):
         mod.log_audit(
             q_hash="abc123",
-            retrieved_chunks=[{"doc_id": "d1", "chunk_id": 0, "text": "SECRET TEXT"}],
             ranked_chunks=[{"doc_id": "d1", "chunk_id": 0, "reranker_score": 0.95}],
             corpus_coverage="full",
             grounding="corpus",
@@ -297,7 +306,6 @@ def test_audit_log_structure(caplog):
     with caplog.at_level(logging.INFO, logger="ragpipe.audit"):
         mod.log_audit(
             q_hash="hashval",
-            retrieved_chunks=[],
             ranked_chunks=[],
             corpus_coverage="none",
             grounding="general",
