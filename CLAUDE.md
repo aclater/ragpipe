@@ -7,7 +7,7 @@ RAG proxy with semantic routing, corpus-preferring grounding, and citation valid
 POST /v1/chat/completions
   → classify query semantically (cosine similarity, <1ms)
   → select route → per-route LLM, Qdrant, docstore, system prompt
-  → embed query (ONNX Runtime, bge-base-en-v1.5, LRU cached)
+  → embed query (ONNX Runtime, gte-modernbert-base, LRU cached)
   → search route's Qdrant (top-K vectors, reference payloads only)
   → hydrate chunk text from Postgres docstore (asyncpg pool, LRU cached)
   → rerank with cross-encoder (ONNX Runtime, MiniLM-L-6-v2)
@@ -58,7 +58,7 @@ examples/
 - Hydration runs as native async (no thread pool hop), embedding/reranking in thread pool
 - ONNX Runtime threads capped at 4, CPU memory arenas disabled
 - Models downloaded from HuggingFace Hub, cached in RAGPIPE_MODEL_CACHE
-- Default embedding model (qdrant/bge-base-en-v1.5-onnx-q) is pre-quantized
+- Default embedding model (Alibaba-NLP/gte-modernbert-base) is quantized ONNX, 768d, CLS pooling
 
 ## Known issues
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
@@ -92,7 +92,7 @@ Two variants are published, both UBI9 Python 3.11, models pre-downloaded, non-ro
 | Variant | Tag | Containerfile | ONNX Runtime package | Base | GPU support |
 |---------|-----|---------------|---------------------|------|-------------|
 | CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | UBI9 Python 3.11 | None (CPU only) |
-| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-rocm` (from AMD repo) | rocm/dev-ubuntu-24.04:6.4.2 | ROCMExecutionProvider |
+| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-migraphx` 1.23.2 (from AMD repo) | rocm/dev-ubuntu-24.04:7.2.1 | MIGraphXExecutionProvider |
 
 ```bash
 # CPU variant
@@ -102,7 +102,7 @@ podman build -t ragpipe -f Containerfile .
 podman build -t ragpipe-rocm -f Containerfile.rocm .
 ```
 
-The ROCm quadlet requires `/dev/kfd` + `/dev/dri` passthrough, `HSA_OVERRIDE_GFX_VERSION=11.5.1`, and `SecurityLabelDisable=true` for SELinux `/dev/kfd` access.
+The ROCm quadlet requires `/dev/kfd` + `/dev/dri` passthrough, `HSA_OVERRIDE_GFX_VERSION=11.5.1`, `SecurityLabelDisable=true` for SELinux `/dev/kfd` access, and `--ipc=host` for MIGraphX shared memory.
 
 
 ## GPU acceleration

@@ -119,28 +119,12 @@ def test_get_providers_cuda_over_migraphx():
     assert providers == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
 
-def test_get_providers_forced_rocm_maps_to_rocm_ep():
-    """RAGPIPE_DEVICE=rocm should map to ROCMExecutionProvider."""
+def test_get_providers_forced_rocm_maps_to_migraphx():
+    """RAGPIPE_DEVICE=rocm should map to MIGraphXExecutionProvider (alias)."""
     p_ctx, e_ctx = _patch_providers(
-        ["ROCMExecutionProvider", "CPUExecutionProvider"],
+        ["MIGraphXExecutionProvider", "CPUExecutionProvider"],
         env_overrides={"RAGPIPE_DEVICE": "rocm"},
     )
-    with p_ctx, e_ctx:
-        providers = _get_providers()
-    assert providers == ["ROCMExecutionProvider", "CPUExecutionProvider"]
-
-
-def test_get_providers_prefers_rocm_over_cpu():
-    """When ROCMExecutionProvider is available (but not CUDA or MIGraphX), it should be preferred."""
-    p_ctx, e_ctx = _patch_providers(["ROCMExecutionProvider", "CPUExecutionProvider"])
-    with p_ctx, e_ctx:
-        providers = _get_providers()
-    assert providers == ["ROCMExecutionProvider", "CPUExecutionProvider"]
-
-
-def test_get_providers_migraphx_over_rocm():
-    """When both MIGraphX and ROCM EPs are available, MIGraphX should win."""
-    p_ctx, e_ctx = _patch_providers(["MIGraphXExecutionProvider", "ROCMExecutionProvider", "CPUExecutionProvider"])
     with p_ctx, e_ctx:
         providers = _get_providers()
     assert providers == ["MIGraphXExecutionProvider", "CPUExecutionProvider"]

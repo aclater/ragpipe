@@ -22,24 +22,19 @@ CACHE_DIR = Path(os.environ.get("RAGPIPE_MODEL_CACHE", Path.home() / ".cache" / 
 ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
 # Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
-# MIGraphX replaces the removed ROCMExecutionProvider (removed in ORT 1.23).
-# "rocm" selects ROCMExecutionProvider (HIP-only, no MIGraphX libs needed).
+# MIGraphX is the only AMD GPU provider in ORT 1.23+ (ROCMExecutionProvider removed).
+# "rocm" is kept as an alias for migraphx for backward compatibility.
 _DEVICE_TO_PROVIDER = {
     "cuda": "CUDAExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
-    "rocm": "ROCMExecutionProvider",
+    "rocm": "MIGraphXExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 
 # Preferred GPU providers in priority order.
 # CUDAExecutionProvider for NVIDIA GPUs.
-# MIGraphX (AMD) uses graph-level compilation — requires libmigraphx_c.so.
-# ROCMExecutionProvider (AMD) uses HIP only — works without MIGraphX libs.
-_GPU_PROVIDERS = [
-    "CUDAExecutionProvider",
-    "MIGraphXExecutionProvider",
-    "ROCMExecutionProvider",
-]
+# MIGraphXExecutionProvider for AMD GPUs (graph-level compilation).
+_GPU_PROVIDERS = ["CUDAExecutionProvider", "MIGraphXExecutionProvider"]
 
 
 def _get_providers() -> list[str]:
@@ -126,13 +121,13 @@ def _ensure_model(repo_id: str, filenames: list[str]) -> Path:
 class Embedder:
     """ONNX Runtime text embedder with CLS pooling and L2 normalization.
 
-    Default model: qdrant/bge-base-en-v1.5-onnx-q (quantized, 208 MB).
+    Default model: Alibaba-NLP/gte-modernbert-base (quantized, 143 MB, 768d).
     """
 
     def __init__(
         self,
-        repo_id: str = "qdrant/bge-base-en-v1.5-onnx-q",
-        model_file: str = "model_optimized.onnx",
+        repo_id: str = "Alibaba-NLP/gte-modernbert-base",
+        model_file: str = "onnx/model_quantized.onnx",
         tokenizer_file: str = "tokenizer.json",
     ):
         self.repo_id = repo_id

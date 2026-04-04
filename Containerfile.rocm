@@ -1,21 +1,46 @@
 # Ragpipe — RAG proxy with corpus-preferring grounding (ROCm / MIGraphX)
-# Uses onnxruntime-rocm for AMD GPU inference via MIGraphXExecutionProvider.
-# Python 3.12 required — AMD only publishes onnxruntime-rocm wheels for cp310/cp312.
-# For CPU-only or NVIDIA builds, use the default Containerfile (Python 3.11).
-FROM registry.access.redhat.com/ubi9/python-312@sha256:1628f816cfbb9f1d9bf6faa70e99dd69371d3a30be7bdc047f66a45e1d3dd244
+# Uses onnxruntime-migraphx for AMD GPU inference via MIGraphXExecutionProvider.
+# Base: rocm/dev-ubuntu-24.04:7.2.1 — vendor image exception per ADR-004
+# (same pattern as ragstuffer ROCm variant).
+# ROCm 7.2 required for gfx1151 (RDNA 3.5/4) support via gfx11-generic ISA.
+# For CPU-only builds, use the default Containerfile (UBI9/python-311).
+FROM docker.io/rocm/dev-ubuntu-24.04:7.2.1
 
-# Install the package, then replace onnxruntime (CPU) with onnxruntime-rocm
+# Install ROCm runtime libs needed by onnxruntime-migraphx's provider .so.
+# migraphx: libmigraphx_c.so (graph compiler)
+# hipblas: libhipblas.so (BLAS on HIP)
+# miopen-hip: libMIOpen.so (ML primitives — conv, pooling, etc.)
+# hipfft: libhipfft.so (FFT on HIP)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends migraphx hipblas miopen-hip hipfft && \
+    # MIOpen kernel DBs may not have entries for gfx1151.
+    # MIOpen will JIT-compile kernels on first inference and cache them in
+    # MIOPEN_USER_DB_PATH (set via quadlet env var, persisted in volume).
+    rm -rf /opt/rocm/share/miopen/db/ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install ragpipe, then swap CPU onnxruntime for onnxruntime-migraphx
 COPY pyproject.toml README.md /app/
 COPY ragpipe/ /app/ragpipe/
 WORKDIR /app
-RUN pip install --no-cache-dir . && \
-    pip install --no-cache-dir --force-reinstall \
-        onnxruntime_rocm \
-        -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.4.2/
+RUN pip install --no-cache-dir --break-system-packages . && \
+    pip uninstall -y --break-system-packages onnxruntime && \
+    pip install --no-cache-dir --break-system-packages \
+        onnxruntime_migraphx==1.23.2 \
+        -f https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/
 
-# Pre-download ONNX models so first request isn't slow
+# Pre-download ONNX models so first request isn't slow.
+# Build runs as root; copy models to /opt/ragpipe/models so they're
+# readable by UID 1001 at runtime. Set default RAGPIPE_MODEL_CACHE to match.
+ENV RAGPIPE_MODEL_CACHE=/opt/ragpipe/models
 RUN python3 -c "from ragpipe.models import Embedder; Embedder().load()" && \
-    python3 -c "from ragpipe.models import Reranker; Reranker().load()"
+    python3 -c "from ragpipe.models import Reranker; Reranker().load()" && \
+    # hf_hub_download creates symlinks to /root/.cache/huggingface — resolve
+    # them to real files so UID 1001 can read them at runtime
+    find /opt/ragpipe/models -type l -exec sh -c \
+        'target=$(readlink -f "$1") && rm "$1" && cp "$target" "$1"' _ {} \; && \
+    rm -rf /root/.cache/huggingface && \
+    chmod -R a+rX /opt/ragpipe/models
 
 USER 1001
 EXPOSE 8090
