@@ -23,18 +23,23 @@ ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 
 # Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
 # MIGraphX replaces the removed ROCMExecutionProvider (removed in ORT 1.23).
-# "rocm" is kept as an alias for migraphx for backward compatibility.
+# "rocm" selects ROCMExecutionProvider (HIP-only, no MIGraphX libs needed).
 _DEVICE_TO_PROVIDER = {
     "cuda": "CUDAExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
-    "rocm": "MIGraphXExecutionProvider",
+    "rocm": "ROCMExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 
 # Preferred GPU providers in priority order.
-# MIGraphX (AMD) uses graph-level compilation, no pre-compiled kernels needed.
 # CUDAExecutionProvider for NVIDIA GPUs.
-_GPU_PROVIDERS = ["CUDAExecutionProvider", "MIGraphXExecutionProvider"]
+# MIGraphX (AMD) uses graph-level compilation — requires libmigraphx_c.so.
+# ROCMExecutionProvider (AMD) uses HIP only — works without MIGraphX libs.
+_GPU_PROVIDERS = [
+    "CUDAExecutionProvider",
+    "MIGraphXExecutionProvider",
+    "ROCMExecutionProvider",
+]
 
 
 def _get_providers() -> list[str]:
