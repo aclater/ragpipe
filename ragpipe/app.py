@@ -8,13 +8,13 @@ citation validation and grounding classification.
 
 import asyncio
 import collections
-import functools
 import hashlib
 import json
 import logging
 import os
 import sys
 import threading
+import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from qdrant_client import QdrantClient
 
 from ragpipe.grounding import (
@@ -35,6 +35,17 @@ from ragpipe.grounding import (
     query_hash,
     strip_invalid_citations,
     validate_citations,
+)
+from ragpipe.metrics import (
+    get_metrics,
+    ragpipe_chunks_passed_reranker_total,
+    ragpipe_chunks_retrieved_total,
+    ragpipe_embed_cache_hits_total,
+    ragpipe_embed_cache_misses_total,
+    ragpipe_invalid_citations_total,
+    ragpipe_queries_total,
+    ragpipe_query_latency_seconds,
+    ragpipe_startup_ready_timestamp,
 )
 from ragpipe.models import Embedder
 from ragpipe.reranker import rerank
@@ -83,8 +94,15 @@ _http_client: httpx.AsyncClient = None
 # Semantic router — initialized from RAGPIPE_ROUTES_FILE if set
 _router = None
 
+# Routes state for hot-reload tracking
+_routes_hash = None
+_routes_loaded_at = None
+_routes_count = 0
+_routes_lock = asyncio.Lock()
+
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
+
 
 # Qdrant result cache — skips the HTTP round-trip for repeated queries
 QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
@@ -212,10 +230,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Initialize semantic router if routes config is provided.
     # This triggers the FIRST MIGraphX compile (embedder, batch=64).
+    global _routes_hash, _routes_loaded_at, _routes_count
     if ROUTES_FILE:
+        from datetime import UTC, datetime
+
         from ragpipe.router import SemanticRouter, load_routes_config
 
-        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
+        with open(ROUTES_FILE, "rb") as f:
+            raw_bytes = f.read()
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE, content=raw_bytes)
+        _routes_count = len(configs)
+        _routes_hash = hashlib.sha256(raw_bytes).hexdigest()
+        _routes_loaded_at = datetime.now(UTC).isoformat()
         _router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
         log.info("Semantic router initialized with %d routes from %s", len(configs), ROUTES_FILE)
     else:
@@ -243,6 +269,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     _ready = True
 
+    ragpipe_startup_ready_timestamp.set(time.time())
+
     yield
 
     # Shutdown
@@ -268,15 +296,32 @@ app = FastAPI(lifespan=lifespan)
 # ── Retrieval pipeline ───────────────────────────────────────────────────────
 
 
-@functools.lru_cache(maxsize=EMBED_CACHE_SIZE)
+# Embed cache — OrderedDict-based LRU with hit/miss tracking for Prometheus.
+_embed_cache: collections.OrderedDict[str, tuple] = collections.OrderedDict()
+_embed_cache_lock = threading.Lock()
+
+
 def _embed_query(query: str) -> tuple:
     """Embed a query string, caching the result. Returns tuple for hashability.
 
-    The key is normalized (strip + lower) so trivial whitespace/case
-    differences don't waste cache slots or re-compute embeddings.
+    Thread-safe LRU cache that tracks hit/miss counts for Prometheus metrics.
     """
+    with _embed_cache_lock:
+        if query in _embed_cache:
+            _embed_cache.move_to_end(query)
+            ragpipe_embed_cache_hits_total.inc()
+            return _embed_cache[query]
+        ragpipe_embed_cache_misses_total.inc()
+
     vec = embedder.embed_one(query)
-    return tuple(vec.tolist())
+    result = tuple(vec.tolist())
+
+    with _embed_cache_lock:
+        _embed_cache[query] = result
+        _embed_cache.move_to_end(query)
+        while len(_embed_cache) > EMBED_CACHE_SIZE:
+            _embed_cache.popitem(last=False)
+    return result
 
 
 def _embed_query_normalized(query: str) -> tuple:
@@ -583,6 +628,7 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         citation_status = "stripped"
         # Log each invalid citation as an error with the query hash
         q_hash = query_hash(user_query)
+        seen_types: set[str] = set()
         for err in validation_errors:
             log.error(
                 "Invalid citation: query_hash=%s doc_id=%s chunk_id=%d reason=%s",
@@ -591,6 +637,9 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
                 err["chunk_id"],
                 err["reason"],
             )
+            if err["reason"] not in seen_types:
+                ragpipe_invalid_citations_total.labels(type=err["reason"]).inc()
+                seen_types.add(err["reason"])
         # Strip invalid citations from the response — preserve the rest
         content = strip_invalid_citations(content, validation_errors)
         response_data["choices"][0]["message"]["content"] = content
@@ -652,6 +701,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
     elif validation_errors:
         citation_status = "invalid"
         q_hash = query_hash(user_query)
+        seen_types: set[str] = set()
         for err in validation_errors:
             log.error(
                 "Invalid citation (streamed): query_hash=%s doc_id=%s chunk_id=%d reason=%s",
@@ -660,6 +710,9 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
                 err["chunk_id"],
                 err["reason"],
             )
+            if err["reason"] not in seen_types:
+                ragpipe_invalid_citations_total.labels(type=err["reason"]).inc()
+                seen_types.add(err["reason"])
     else:
         citation_status = "pass"
 
@@ -683,6 +736,22 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
     )
 
     return metadata
+
+
+def _record_query_metrics(
+    latency: float,
+    metadata: dict,
+    retrieval_ctx: dict,
+) -> None:
+    """Record query metrics to Prometheus. Called after both streaming and non-streaming."""
+    route = retrieval_ctx.get("route_name", "default") or "default"
+    grounding = metadata.get("grounding", "unknown")
+    ranked = retrieval_ctx.get("ranked", [])
+    ragpipe_queries_total.labels(grounding=grounding, route=route).inc()
+    ragpipe_query_latency_seconds.labels(route=route).observe(latency)
+    if ranked:
+        ragpipe_chunks_retrieved_total.labels(route=route).inc(len(ranked))
+        ragpipe_chunks_passed_reranker_total.labels(route=route).inc(len(ranked))
 
 
 def _format_perf_summary(timings: dict | None, usage: dict | None, ctx: dict) -> str:
@@ -717,10 +786,15 @@ async def chat_completions(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
+    request_start = time.monotonic()
+
     # Route selection — when a router is configured, classify the query
     # and select a per-route pipeline. Otherwise use module-level globals.
     pipeline = None
-    if _router is not None:
+    # Snapshot the router so classify + get_pipeline use the same generation
+    # even if a hot-reload swaps _router between the two calls.
+    router = _router
+    if router is not None:
         user_msg = ""
         for msg in reversed(body.get("messages", [])):
             if msg.get("role") == "user":
@@ -730,8 +804,8 @@ async def chat_completions(request: Request):
             import numpy as np
 
             query_vec = np.array(_embed_query_normalized(user_msg))
-            route_name, route_score = _router.classify(query_vec)
-            pipeline = _router.get_pipeline(route_name)
+            route_name, route_score = router.classify(query_vec)
+            pipeline = router.get_pipeline(route_name)
             retrieval_ctx_extra = {"route_name": route_name, "route_score": route_score}
             log.info("Routed to '%s' (score=%.4f)", route_name, route_score)
         else:
@@ -825,6 +899,9 @@ async def chat_completions(request: Request):
                     )
                     _background_tasks.add(task)
                     task.add_done_callback(lambda t: _background_tasks.discard(t))
+                    # Record Prometheus metrics after streaming completes
+                    elapsed = time.monotonic() - request_start
+                    _record_query_metrics(elapsed, metadata, retrieval_ctx)
 
         return StreamingResponse(
             validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
@@ -862,6 +939,9 @@ async def chat_completions(request: Request):
             )
             _background_tasks.add(task)
             task.add_done_callback(lambda t: _background_tasks.discard(t))
+            # Record Prometheus metrics after non-streaming response
+            elapsed = time.monotonic() - request_start
+            _record_query_metrics(elapsed, metadata, retrieval_ctx)
         return JSONResponse(content=response_data)
 
 
@@ -870,6 +950,12 @@ async def health():
     if not _ready:
         return JSONResponse({"status": "starting"}, status_code=503)
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus-compatible metrics endpoint. No auth required — Prometheus scrapes this."""
+    return PlainTextResponse(get_metrics(), media_type="text/plain; charset=utf-8")
 
 
 @app.api_route("/v1/embeddings", methods=["POST"])
@@ -898,14 +984,8 @@ async def embeddings(request: Request):
     )
 
 
-@app.post("/admin/reload-prompt")
-async def reload_prompt(request: Request):
-    """Hot-reload the system prompt from file/env/default.
-
-    Requires RAGPIPE_ADMIN_TOKEN to be set and passed as a Bearer token.
-    The adversarial tuning agent writes a new prompt file, then calls
-    this endpoint to apply it without restarting ragpipe.
-    """
+def _check_admin_auth(request: Request) -> JSONResponse | None:
+    """Verify RAGPIPE_ADMIN_TOKEN bearer auth. Returns error response or None."""
     if not ADMIN_TOKEN:
         return JSONResponse(
             {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
@@ -914,11 +994,156 @@ async def reload_prompt(request: Request):
     auth = request.headers.get("authorization", "")
     if auth != f"Bearer {ADMIN_TOKEN}":
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return None
+
+
+@app.post("/admin/reload-prompt")
+async def reload_prompt(request: Request):
+    """Hot-reload the system prompt from file/env/default.
+
+    Requires RAGPIPE_ADMIN_TOKEN to be set and passed as a Bearer token.
+    The adversarial tuning agent writes a new prompt file, then calls
+    this endpoint to apply it without restarting ragpipe.
+    """
+    error = _check_admin_auth(request)
+    if error:
+        return error
 
     from ragpipe.grounding import reload_system_prompt
 
     result = reload_system_prompt()
     return JSONResponse(result)
+
+
+@app.post("/admin/reload-routes")
+async def reload_routes(request: Request):
+    """Hot-reload the routes YAML file and reinitialize the semantic router.
+
+    Requires RAGPIPE_ADMIN_TOKEN bearer auth. Non-blocking for in-flight requests.
+    """
+    global _router, _routes_hash, _routes_loaded_at, _routes_count, embedder
+
+    error = _check_admin_auth(request)
+    if error:
+        return error
+
+    if not ROUTES_FILE:
+        return JSONResponse(
+            {"error": "RAGPIPE_ROUTES_FILE not configured — cannot reload routes"},
+            status_code=404,
+        )
+
+    import pathlib
+    from datetime import UTC, datetime
+
+    path = pathlib.Path(ROUTES_FILE)
+    if not path.exists():
+        return JSONResponse(
+            {"error": f"Routes file not found: {ROUTES_FILE}"},
+            status_code=404,
+        )
+
+    # Read once — hash and parse from the same bytes to avoid TOCTOU race
+    raw_bytes = path.read_bytes()
+    new_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+    try:
+        from ragpipe.router import SemanticRouter, load_routes_config
+
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE, content=raw_bytes)
+    except Exception:
+        log.exception("Failed to parse routes file: %s", ROUTES_FILE)
+        return JSONResponse(
+            {"error": "Failed to parse routes file — check server logs"},
+            status_code=400,
+        )
+
+    async with _routes_lock:
+        changed = new_hash != _routes_hash
+
+        if changed:
+            old_router = _router
+            # SemanticRouter.__init__ embeds route examples — run in thread
+            # pool to avoid blocking the event loop on MIGraphX inference
+            new_router = await asyncio.get_event_loop().run_in_executor(
+                _embed_executor,
+                lambda: SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback),
+            )
+            _router = new_router
+            _routes_hash = new_hash
+            _routes_loaded_at = datetime.now(UTC).isoformat()
+            _routes_count = len(configs)
+            log.info("Routes reloaded (hash=%s, route_count=%d)", new_hash[:16], _routes_count)
+            # Grace period before closing old router — gives in-flight
+            # requests time to finish with their borrowed pipelines
+            if old_router:
+
+                async def _close_after_grace(router, delay=30):
+                    await asyncio.sleep(delay)
+                    await router.close_all()
+                    log.info("Old router closed after %ds grace period", delay)
+
+                task = asyncio.create_task(
+                    _close_after_grace(old_router),
+                    name="close_old_router",
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(lambda t: _background_tasks.discard(t))
+        else:
+            log.info("Routes unchanged (hash=%s)", new_hash[:16])
+
+    return JSONResponse(
+        {
+            "status": "reloaded",
+            "changed": changed,
+            "route_count": _routes_count,
+            "hash": _routes_hash,
+        }
+    )
+
+
+@app.post("/admin/reload-system-prompt")
+async def reload_system_prompt_endpoint(request: Request):
+    """Alias for /admin/reload-prompt for consistency with reload-routes."""
+    error = _check_admin_auth(request)
+    if error:
+        return error
+
+    from ragpipe.grounding import reload_system_prompt
+
+    result = reload_system_prompt()
+    return JSONResponse(result)
+
+
+@app.get("/admin/config")
+async def get_config(request: Request):
+    """Return current config state for observability."""
+    error = _check_admin_auth(request)
+    if error:
+        return error
+
+    from ragpipe.grounding import SYSTEM_PROMPT_HASH, SYSTEM_PROMPT_LOADED_AT
+
+    prompt_file = os.environ.get("RAGPIPE_SYSTEM_PROMPT_FILE")
+    if prompt_file:
+        prompt_source = f"file:{prompt_file}"
+    elif os.environ.get("RAGPIPE_SYSTEM_PROMPT"):
+        prompt_source = "env:RAGPIPE_SYSTEM_PROMPT"
+    else:
+        prompt_source = "default"
+
+    return JSONResponse(
+        {
+            "routes_file": ROUTES_FILE,
+            "routes_hash": _routes_hash,
+            "routes_loaded_at": _routes_loaded_at,
+            "route_count": _routes_count,
+            "prompt_file": prompt_file,
+            "prompt_hash": SYSTEM_PROMPT_HASH,
+            "prompt_loaded_at": SYSTEM_PROMPT_LOADED_AT,
+            "prompt_source": prompt_source,
+        }
+    )
 
 
 @app.post("/admin/classify")
@@ -928,15 +1153,11 @@ async def classify_query(request: Request):
     Requires RAGPIPE_ADMIN_TOKEN. Returns the selected route, score, and
     all route scores for tuning centroid quality.
     """
-    if not ADMIN_TOKEN:
-        return JSONResponse(
-            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
-            status_code=403,
-        )
-    auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {ADMIN_TOKEN}":
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    if _router is None:
+    error = _check_admin_auth(request)
+    if error:
+        return error
+    router = _router
+    if router is None:
         return JSONResponse(
             {"error": "No routes configured — set RAGPIPE_ROUTES_FILE"},
             status_code=404,
@@ -954,8 +1175,8 @@ async def classify_query(request: Request):
     import numpy as np
 
     query_vec = np.array(_embed_query_normalized(query))
-    route_name, route_score = _router.classify(query_vec)
-    all_scores = _router.all_scores(query_vec)
+    route_name, route_score = router.classify(query_vec)
+    all_scores = router.all_scores(query_vec)
 
     return JSONResponse(
         {
