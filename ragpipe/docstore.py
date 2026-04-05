@@ -198,7 +198,9 @@ class PostgresDocstore(DocstoreBackend):
                 [r[0] for r in refs],
                 [r[1] for r in refs],
             )
-            return {(row["doc_id"], row["chunk_id"]): _chunk_dict(row["text"], row["title"], row["source"]) for row in rows}
+            return {
+                (row["doc_id"], row["chunk_id"]): _chunk_dict(row["text"], row["title"], row["source"]) for row in rows
+            }
 
     def delete_doc(self, doc_id: str) -> None:
         conn = self._get_sync_conn()

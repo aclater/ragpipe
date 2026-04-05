@@ -158,10 +158,15 @@ Ragpipe is fully OpenAI-compatible. It intercepts `/v1/chat/completions` and pas
 ```json
 {
     "grounding": "corpus",
-    "cited_chunks": ["abc-123:0", "abc-123:1"],
+    "cited_chunks": [
+        {"id": "abc-123:0", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"},
+        {"id": "abc-123:1", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"}
+    ],
     "corpus_coverage": "full"
 }
 ```
+
+**Breaking change:** `cited_chunks` changed from a flat list of `"doc_id:chunk_id"` strings to a list of objects with `id`, `title`, and `source` fields. Consumers that previously parsed `cited_chunks` as strings must be updated.
 
 **Streaming responses** include a performance summary block before `[DONE]` with token counts, generation speed, and RAG source info.
 

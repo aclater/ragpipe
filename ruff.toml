@@ -21,9 +21,12 @@ ignore = [
     "S101",  # assert in tests is fine
     "S104",  # binding 0.0.0.0 is intentional — runs inside containers
     "S108",  # /tmp paths are env-overridable defaults in containerized code
+    "S110",  # try-except-pass is intentional for fire-and-fallback patterns
     "S603",  # subprocess calls are intentional
     "S607",  # partial executable path is acceptable
     "S608",  # parameterized SQL with dynamic placeholders, not string injection
+    "SIM105",  # contextlib.suppress obscures intent in fire-and-fallback
+    "RUF006",  # fire-and-forget asyncio.create_task is intentional for query_log
 ]
 
 [lint.per-file-ignores]

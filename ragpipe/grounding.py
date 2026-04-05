@@ -346,11 +346,13 @@ def build_metadata(
     cited_chunks = []
     for d, c in valid_citations:
         chunk_data = title_lookup.get((d, c), {})
-        cited_chunks.append({
-            "id": f"{d}:{c}",
-            "title": chunk_data.get("title", "") if isinstance(chunk_data, dict) else "",
-            "source": chunk_data.get("source", "") if isinstance(chunk_data, dict) else "",
-        })
+        cited_chunks.append(
+            {
+                "id": f"{d}:{c}",
+                "title": chunk_data.get("title", "") if isinstance(chunk_data, dict) else "",
+                "source": chunk_data.get("source", "") if isinstance(chunk_data, dict) else "",
+            }
+        )
 
     return {
         "grounding": grounding,

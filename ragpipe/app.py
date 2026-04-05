@@ -109,9 +109,11 @@ async def _get_query_log_pool():
         if _query_log_pool is not None:
             return _query_log_pool
         from ragpipe.docstore import DOCSTORE_URL
+
         if not DOCSTORE_URL:
             return None
         import asyncpg
+
         _query_log_pool = await asyncpg.create_pool(DOCSTORE_URL, min_size=1, max_size=2)
         return _query_log_pool
 
@@ -390,7 +392,8 @@ async def _hydrate(refs: list[dict], *, ds=None) -> list[dict]:
             continue
         text = chunk_data.get("text", "") if isinstance(chunk_data, dict) else (chunk_data or "")
         title = chunk_data.get("title", "") if isinstance(chunk_data, dict) else ""
-        source = chunk_data.get("source", ref.get("source", "unknown")) if isinstance(chunk_data, dict) else ref.get("source", "unknown")
+        source_val = chunk_data.get("source", "") if isinstance(chunk_data, dict) else ""
+        source = source_val if source_val else ref.get("source", "unknown")
         hydrated.append(
             {
                 "text": text,
@@ -798,7 +801,7 @@ async def chat_completions(request: Request):
                 if metadata:
                     model = body.get("model")
                     route_name = retrieval_ctx.get("route_name")
-                    asyncio.create_task(
+                    _ = asyncio.create_task(
                         _write_query_log(
                             query_text=retrieval_ctx.get("user_query", ""),
                             query_hash=query_hash(retrieval_ctx.get("user_query", "")),
@@ -833,7 +836,7 @@ async def chat_completions(request: Request):
         if metadata:
             model = body.get("model")
             route_name = retrieval_ctx.get("route_name")
-            asyncio.create_task(
+            _ = asyncio.create_task(
                 _write_query_log(
                     query_text=retrieval_ctx.get("user_query", ""),
                     query_hash=query_hash(retrieval_ctx.get("user_query", "")),
