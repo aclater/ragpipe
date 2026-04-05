@@ -29,10 +29,7 @@ def test_parse_citations_never_crashes(text: str) -> None:
 @settings(max_examples=100)
 def test_strip_invalid_citations_never_crashes(text: str, n_invalid: int) -> None:
     """strip_invalid_citations must not raise on arbitrary input."""
-    invalid = [
-        {"doc_id": f"abcd{i:04x}", "chunk_id": i}
-        for i in range(n_invalid)
-    ]
+    invalid = [{"doc_id": f"abcd{i:04x}", "chunk_id": i} for i in range(n_invalid)]
     result = strip_invalid_citations(text, invalid)
     assert isinstance(result, str)
 
@@ -53,12 +50,14 @@ def test_parse_citations_roundtrip(text: str) -> None:
 
 @given(
     chunks=st.lists(
-        st.fixed_dictionaries({
-            "doc_id": st.text(alphabet="abcdef0123456789", min_size=4, max_size=8),
-            "chunk_id": st.integers(min_value=0, max_value=100),
-            "text": st.text(min_size=0, max_size=200),
-            "source": st.text(min_size=0, max_size=50),
-        }),
+        st.fixed_dictionaries(
+            {
+                "doc_id": st.text(alphabet="abcdef0123456789", min_size=4, max_size=8),
+                "chunk_id": st.integers(min_value=0, max_value=100),
+                "text": st.text(min_size=0, max_size=200),
+                "source": st.text(min_size=0, max_size=50),
+            }
+        ),
         min_size=0,
         max_size=20,
     )
