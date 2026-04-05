@@ -250,27 +250,19 @@ class Reranker:
     def score(self, query: str, documents: list[str]) -> list[float]:
         """Score (query, document) pairs. Returns list of relevance scores.
 
-        Inputs are padded to ONNX_BATCH_SIZE for stable MIGraphX graph
-        shape, same as Embedder.
+        Unlike Embedder, batch padding is NOT applied here. MIGraphX
+        crashes with UNREACHABLE (AmdArchDb.cpp:379 unsupported architecture)
+        when compiling MiniLM-L-6 at batch_size=64 on gfx1151. The reranker
+        handles variable batch sizes via per-shape recompilation (small
+        batches compile quickly, unlike the embedder's larger model).
         """
         if not documents:
             return []
         if self._session is None:
             self.load()
 
-        if len(documents) > ONNX_BATCH_SIZE:
-            scores = []
-            for i in range(0, len(documents), ONNX_BATCH_SIZE):
-                scores.extend(self.score(query, documents[i : i + ONNX_BATCH_SIZE]))
-            return scores
-
-        actual = len(documents)
-        pairs = [(query, doc) for doc in documents]
-        # Pad to fixed batch size for stable MIGraphX graph shape
-        if actual < ONNX_BATCH_SIZE:
-            pairs += [("", "")] * (ONNX_BATCH_SIZE - actual)
-
-        encoded = self._tokenizer.encode_batch(pairs)
+        # Tokenize as (query, document) pairs
+        encoded = self._tokenizer.encode_batch([(query, doc) for doc in documents])
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
 
@@ -280,4 +272,4 @@ class Reranker:
 
         outputs = self._session.run(None, onnx_input)
         # Cross-encoder output: logits column 0 is the relevance score
-        return [float(s) for s in outputs[0][:actual, 0]]
+        return [float(s) for s in outputs[0][:, 0]]

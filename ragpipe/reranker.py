@@ -36,13 +36,14 @@ def _get_model():
 
 
 def warm_up():
-    """Load the model and trigger MIGraphX graph compilation.
+    """Load the model eagerly at startup instead of on first request.
 
-    A dummy score call forces MIGraphX to JIT-compile for the padded
-    batch shape at startup, rather than on the first real request.
+    Does NOT trigger a dummy inference — MIGraphX crashes when compiling
+    MiniLM-L-6 at batch_size=64 on gfx1151 (UNREACHABLE in AmdArchDb).
+    The first real rerank request will trigger a fast compile for the
+    actual batch size (typically 15-40 candidates).
     """
-    model = _get_model()
-    model.score("warmup query", ["warmup document"])
+    _get_model()
 
 
 def rerank(
