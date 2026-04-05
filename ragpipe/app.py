@@ -524,7 +524,7 @@ def process_response(response_data: dict, ctx: dict) -> dict:
         citation_status = "pass"
 
     # Build metadata — populated by parsing, not by the LLM
-    metadata = build_metadata(content, valid_citations, corpus_coverage)
+    metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
 
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
@@ -578,7 +578,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
     else:
         citation_status = "pass"
 
-    metadata = build_metadata(content, valid_citations, corpus_coverage)
+    metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
 
     log_audit(
         q_hash=query_hash(user_query),

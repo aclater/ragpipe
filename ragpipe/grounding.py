@@ -325,12 +325,36 @@ def build_metadata(
     response_text: str,
     valid_citations: list[tuple[str, int]],
     corpus_coverage: str,
+    *,
+    docstore=None,
 ) -> dict:
-    """Build the structured metadata block for the response."""
+    """Build the structured metadata block for the response.
+
+    Breaking change: cited_chunks is now a list of dicts with id, title,
+    and source fields instead of a flat list of "doc_id:chunk_id" strings.
+    """
     grounding = classify_grounding(response_text, valid_citations, corpus_coverage)
+
+    # Resolve titles from docstore
+    title_lookup: dict[tuple[str, int], dict] = {}
+    if docstore and valid_citations:
+        try:
+            title_lookup = docstore.get_chunks(valid_citations)
+        except Exception:
+            pass
+
+    cited_chunks = []
+    for d, c in valid_citations:
+        chunk_data = title_lookup.get((d, c), {})
+        cited_chunks.append({
+            "id": f"{d}:{c}",
+            "title": chunk_data.get("title", "") if isinstance(chunk_data, dict) else "",
+            "source": chunk_data.get("source", "") if isinstance(chunk_data, dict) else "",
+        })
+
     return {
         "grounding": grounding,
-        "cited_chunks": [f"{d}:{c}" for d, c in valid_citations],
+        "cited_chunks": cited_chunks,
         "corpus_coverage": corpus_coverage,
     }
 
