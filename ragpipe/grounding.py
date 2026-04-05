@@ -34,7 +34,12 @@ DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable assistant with access to a cu
 
 4. Never present general knowledge as if it came from the retrieved documents. Never fabricate citations.
 
-5. If you are uncertain whether your general knowledge is accurate, say so explicitly rather than stating it with false confidence."""
+5. If you are uncertain whether your general knowledge is accurate, say so explicitly rather than stating it with false confidence.
+
+## Example
+
+User: What does the report say about cloud adoption?
+Assistant: According to the Q3 Strategy Report, cost reduction is the top driver of cloud adoption [e3a1b2c4-5f6d-7890-abcd-ef1234567890:3]. The report also identifies scalability as a key factor, noting that 78% of surveyed teams cited elastic capacity as a requirement [e3a1b2c4-5f6d-7890-abcd-ef1234567890:7]. A separate Compliance Review highlights regulatory mandates as an accelerant for migration [f4b2c3d5-6a7e-8901-bcde-f12345678901:2]."""
 
 DEFAULT_SYSTEM_PROMPT_HASH = hashlib.sha256(DEFAULT_SYSTEM_PROMPT.encode()).hexdigest()
 
@@ -159,7 +164,10 @@ def build_system_message(context: str, *, system_prompt: str | None = None) -> s
     """
     prompt = system_prompt or SYSTEM_PROMPT
     if context:
-        return f"{prompt}\n\n--- DOCUMENT CONTEXT ---\n{context}\n--- END CONTEXT ---"
+        return (
+            f"{prompt}\n\n--- DOCUMENT CONTEXT ---\n{context}\n--- END CONTEXT ---\n\n"
+            "REMINDER: Cite every claim from the documents above using [doc_id:chunk_id] format."
+        )
     else:
         return f"{prompt}\n\nNo relevant documents were retrieved for this query."
 
