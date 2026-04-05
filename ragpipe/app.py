@@ -68,6 +68,7 @@ qdrant: QdrantClient = None
 embedder: Embedder = None
 docstore = None
 _collection_exists: bool = False
+_ready: bool = False
 
 # Separate thread pools for embedding and reranking so they don't
 # compete under concurrent requests. Embedding feeds Qdrant search;
@@ -96,7 +97,7 @@ _qdrant_cache_lock = threading.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    global qdrant, embedder, docstore, _collection_exists, _http_client, _router
+    global qdrant, embedder, docstore, _collection_exists, _http_client, _router, _ready
     # Qdrant — deferred; RAG context unavailable until Qdrant is reachable
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     try:
@@ -157,6 +158,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         QDRANT_CACHE_SIZE,
         QDRANT_SCORE_THRESHOLD,
     )
+
+    _ready = True
 
     yield
 
@@ -712,6 +715,8 @@ async def chat_completions(request: Request):
 
 @app.get("/health")
 async def health():
+    if not _ready:
+        return JSONResponse({"status": "starting"}, status_code=503)
     return {"status": "ok"}
 
 
