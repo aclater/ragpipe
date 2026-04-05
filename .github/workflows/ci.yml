@@ -53,6 +53,53 @@ jobs:
           DOCSTORE_URL: postgresql://ragpipe:ragpipe@127.0.0.1:5432/ragpipe
         run: python -m pytest -v tests/
 
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install --quiet '.[dev]' mypy
+      - name: Run mypy
+        run: mypy ragpipe/
+        continue-on-error: true
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ragpipe
+          POSTGRES_PASSWORD: ragpipe
+          POSTGRES_DB: ragpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install --quiet '.[dev]'
+      - name: Run tests with coverage
+        env:
+          DOCSTORE_URL: postgresql://ragpipe:ragpipe@127.0.0.1:5432/ragpipe
+        run: python -m pytest --cov=ragpipe --cov-report=xml --cov-report=term-missing tests/
+      - uses: codecov/codecov-action@v6.0.0
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+
   hadolint:
     name: Hadolint
     runs-on: ubuntu-latest

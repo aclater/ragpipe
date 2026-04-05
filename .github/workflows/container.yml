@@ -61,3 +61,20 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies and generate SBOM
+        run: |
+          pip install --quiet . cyclonedx-bom
+          cyclonedx-py environment -o sbom.json --output-format json
+      - uses: actions/upload-artifact@v7.0.0
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
