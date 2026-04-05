@@ -226,7 +226,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         with open(ROUTES_FILE, "rb") as f:
             raw_bytes = f.read()
-        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE, content=raw_bytes)
         _routes_count = len(configs)
         _routes_hash = hashlib.sha256(raw_bytes).hexdigest()
         _routes_loaded_at = datetime.now(UTC).isoformat()
@@ -734,7 +734,10 @@ async def chat_completions(request: Request):
     # Route selection — when a router is configured, classify the query
     # and select a per-route pipeline. Otherwise use module-level globals.
     pipeline = None
-    if _router is not None:
+    # Snapshot the router so classify + get_pipeline use the same generation
+    # even if a hot-reload swaps _router between the two calls.
+    router = _router
+    if router is not None:
         user_msg = ""
         for msg in reversed(body.get("messages", [])):
             if msg.get("role") == "user":
@@ -744,8 +747,8 @@ async def chat_completions(request: Request):
             import numpy as np
 
             query_vec = np.array(_embed_query_normalized(user_msg))
-            route_name, route_score = _router.classify(query_vec)
-            pipeline = _router.get_pipeline(route_name)
+            route_name, route_score = router.classify(query_vec)
+            pipeline = router.get_pipeline(route_name)
             retrieval_ctx_extra = {"route_name": route_name, "route_score": route_score}
             log.info("Routed to '%s' (score=%.4f)", route_name, route_score)
         else:
@@ -978,7 +981,7 @@ async def reload_routes(request: Request):
     try:
         from ragpipe.router import SemanticRouter, load_routes_config
 
-        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE, content=raw_bytes)
     except Exception:
         log.exception("Failed to parse routes file: %s", ROUTES_FILE)
         return JSONResponse(
@@ -1002,10 +1005,16 @@ async def reload_routes(request: Request):
             _routes_loaded_at = datetime.now(UTC).isoformat()
             _routes_count = len(configs)
             log.info("Routes reloaded (hash=%s, route_count=%d)", new_hash[:16], _routes_count)
-            # Close old router resources after swap so in-flight requests
-            # that grabbed the old router can finish
+            # Grace period before closing old router — gives in-flight
+            # requests time to finish with their borrowed pipelines
             if old_router:
-                await old_router.close_all()
+
+                async def _close_after_grace(router, delay=30):
+                    await asyncio.sleep(delay)
+                    await router.close_all()
+                    log.info("Old router closed after %ds grace period", delay)
+
+                asyncio.create_task(_close_after_grace(old_router))
         else:
             log.info("Routes unchanged (hash=%s)", new_hash[:16])
 
@@ -1073,7 +1082,8 @@ async def classify_query(request: Request):
     error = _check_admin_auth(request)
     if error:
         return error
-    if _router is None:
+    router = _router
+    if router is None:
         return JSONResponse(
             {"error": "No routes configured — set RAGPIPE_ROUTES_FILE"},
             status_code=404,
@@ -1091,8 +1101,8 @@ async def classify_query(request: Request):
     import numpy as np
 
     query_vec = np.array(_embed_query_normalized(query))
-    route_name, route_score = _router.classify(query_vec)
-    all_scores = _router.all_scores(query_vec)
+    route_name, route_score = router.classify(query_vec)
+    all_scores = router.all_scores(query_vec)
 
     return JSONResponse(
         {

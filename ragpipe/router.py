@@ -186,13 +186,19 @@ class SemanticRouter:
             await pipeline.close()
 
 
-def load_routes_config(path: str) -> tuple[list[RouteConfig], float, str | None]:
-    """Load routes configuration from a YAML file.
+def load_routes_config(path: str, *, content: str | bytes | None = None) -> tuple[list[RouteConfig], float, str | None]:
+    """Load routes configuration from a YAML file or pre-read content.
+
+    When *content* is provided the file is not re-opened — use this to
+    ensure the parsed config matches a hash computed from the same bytes.
 
     Returns (routes, threshold, fallback_route).
     """
-    with open(path) as f:
-        raw = yaml.safe_load(f)
+    if content is not None:
+        raw = yaml.safe_load(content if isinstance(content, str) else content.decode())
+    else:
+        with open(path) as f:
+            raw = yaml.safe_load(f)
 
     if not isinstance(raw, dict) or "routes" not in raw:
         raise ValueError(f"Routes config must be a YAML dict with a 'routes' key: {path}")
