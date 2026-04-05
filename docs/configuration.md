@@ -9,6 +9,7 @@ All configuration is via environment variables with sensible defaults.
 | `MODEL_URL` | `http://127.0.0.1:8080` | LLM endpoint to forward to |
 | `QDRANT_URL` | `http://127.0.0.1:6333` | Qdrant vector search endpoint |
 | `QDRANT_COLLECTION` | `documents` | Qdrant collection name |
+| `QDRANT_SCORE_THRESHOLD` | `0.3` | Minimum vector similarity score for Qdrant search results |
 | `RAG_PROXY_PORT` | `8090` | Port to listen on |
 | `RAG_TOP_K` | `20` | Qdrant candidate count before reranking |
 
@@ -19,6 +20,7 @@ All configuration is via environment variables with sensible defaults.
 | `EMBED_MODEL` | `Alibaba-NLP/gte-modernbert-base` | HuggingFace repo for ONNX embedding model (quantized, 768d) |
 | `ONNX_PAD_LENGTH` | `128` | Fixed padding length for tokenizer — prevents MIGraphX recompilation per input shape |
 | `EMBED_CACHE_SIZE` | `256` | LRU cache size for query embeddings |
+| `QDRANT_CACHE_SIZE` | `512` | LRU cache size for Qdrant search results — skips HTTP round-trips for repeated queries |
 | `ONNX_THREADS` | `4` | ONNX Runtime intra-op thread count per model |
 | `RAGPIPE_MODEL_CACHE` | `~/.cache/ragpipe` | Local directory for downloaded ONNX models |
 
