@@ -151,6 +151,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         configs, threshold, fallback = load_routes_config(ROUTES_FILE)
         _router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
         log.info("Semantic router initialized with %d routes from %s", len(configs), ROUTES_FILE)
+    else:
+        log.info("No RAGPIPE_ROUTES_FILE — single-pipeline mode")
 
     # Warm up the reranker AFTER the embedder compile finishes.
     # MIGraphX cannot compile two graphs concurrently — sequential
@@ -162,8 +164,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         warm_up()
     except Exception:
         log.warning("Reranker warm-up failed — will load on first request")
-    else:
-        log.info("No RAGPIPE_ROUTES_FILE — single-pipeline mode")
 
     log.info(
         "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d, qdrant_cache=%d, score_threshold=%.2f)",
