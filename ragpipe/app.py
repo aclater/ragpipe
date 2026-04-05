@@ -1014,7 +1014,12 @@ async def reload_routes(request: Request):
                     await router.close_all()
                     log.info("Old router closed after %ds grace period", delay)
 
-                asyncio.create_task(_close_after_grace(old_router))
+                task = asyncio.create_task(
+                    _close_after_grace(old_router),
+                    name="close_old_router",
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(lambda t: _background_tasks.discard(t))
         else:
             log.info("Routes unchanged (hash=%s)", new_hash[:16])
 
