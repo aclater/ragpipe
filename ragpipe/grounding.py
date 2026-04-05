@@ -341,7 +341,7 @@ def build_metadata(
         try:
             title_lookup = docstore.get_chunks(valid_citations)
         except Exception:
-            pass
+            log.debug("Failed to resolve citation titles from docstore", exc_info=True)
 
     cited_chunks = []
     for d, c in valid_citations:

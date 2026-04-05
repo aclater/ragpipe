@@ -102,6 +102,21 @@ class PostgresDocstore(DocstoreBackend):
                     PRIMARY KEY (doc_id, chunk_id)
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS query_log (
+                    id            BIGINT GENERATED ALWAYS AS IDENTITY,
+                    collection_id UUID,
+                    query_text    TEXT NOT NULL,
+                    query_hash    TEXT NOT NULL,
+                    grounding     TEXT NOT NULL,
+                    cited_chunks  TEXT[],
+                    total_chunks  INTEGER NOT NULL DEFAULT 0,
+                    latency_ms    INTEGER,
+                    model         TEXT,
+                    route         TEXT,
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
         self._schema_ready = True
 
     def init_schema(self) -> None:

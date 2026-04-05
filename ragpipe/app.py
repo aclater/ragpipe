@@ -97,7 +97,16 @@ _qdrant_cache_lock = threading.Lock()
 # Query-log writer — asyncpg pool for direct writes to query_log.
 # Uses the same DOCSTORE_URL as the docstore since they share the DB.
 _query_log_pool = None
-_query_log_init_lock = threading.Lock()
+_query_log_init_lock: asyncio.Lock | None = None
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _get_query_log_init_lock() -> asyncio.Lock:
+    """Lazy-init asyncio.Lock (cannot be created at module level without a loop)."""
+    global _query_log_init_lock
+    if _query_log_init_lock is None:
+        _query_log_init_lock = asyncio.Lock()
+    return _query_log_init_lock
 
 
 async def _get_query_log_pool():
@@ -105,7 +114,7 @@ async def _get_query_log_pool():
     global _query_log_pool
     if _query_log_pool is not None:
         return _query_log_pool
-    with _query_log_init_lock:
+    async with _get_query_log_init_lock():
         if _query_log_pool is not None:
             return _query_log_pool
         from ragpipe.docstore import DOCSTORE_URL
@@ -155,6 +164,13 @@ async def _write_query_log(
             )
     except Exception:
         log.warning("Failed to write query_log entry — continuing", exc_info=True)
+
+
+def _fire_and_forget(coro) -> None:
+    """Schedule a coroutine as a background task with GC-safe tracking."""
+    task = asyncio.create_task(coro, name="query_log_write")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @asynccontextmanager
@@ -241,6 +257,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
 
     # Shutdown
+    global _query_log_pool
+    if _query_log_pool:
+        await _query_log_pool.close()
     if _router:
         await _router.close_all()
     if _http_client:
@@ -598,7 +617,7 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         try:
             cited_chunk_titles = effective_ds.get_chunks(valid_citations)
         except Exception:
-            pass
+            log.debug("Failed to resolve cited chunk titles — using empty strings", exc_info=True)
 
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
@@ -662,7 +681,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
         try:
             cited_chunk_titles = effective_ds.get_chunks(valid_citations)
         except Exception:
-            pass
+            log.debug("Failed to resolve cited chunk titles (streamed) — using empty strings", exc_info=True)
 
     log_audit(
         q_hash=query_hash(user_query),
@@ -801,7 +820,7 @@ async def chat_completions(request: Request):
                 if metadata:
                     model = body.get("model")
                     route_name = retrieval_ctx.get("route_name")
-                    _ = asyncio.create_task(
+                    _fire_and_forget(
                         _write_query_log(
                             query_text=retrieval_ctx.get("user_query", ""),
                             query_hash=query_hash(retrieval_ctx.get("user_query", "")),
@@ -812,8 +831,7 @@ async def chat_completions(request: Request):
                             model=model,
                             route=route_name,
                             collection_id=None,
-                        ),
-                        name="query_log_write",
+                        )
                     )
 
         return StreamingResponse(
@@ -836,7 +854,7 @@ async def chat_completions(request: Request):
         if metadata:
             model = body.get("model")
             route_name = retrieval_ctx.get("route_name")
-            _ = asyncio.create_task(
+            _fire_and_forget(
                 _write_query_log(
                     query_text=retrieval_ctx.get("user_query", ""),
                     query_hash=query_hash(retrieval_ctx.get("user_query", "")),
@@ -847,8 +865,7 @@ async def chat_completions(request: Request):
                     model=model,
                     route=route_name,
                     collection_id=None,
-                ),
-                name="query_log_write",
+                )
             )
         return JSONResponse(content=response_data)
 
