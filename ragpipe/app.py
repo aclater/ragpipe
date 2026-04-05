@@ -84,11 +84,10 @@ _http_client: httpx.AsyncClient = None
 _router = None
 
 # Routes state for hot-reload tracking
-_routes_file = None
 _routes_hash = None
 _routes_loaded_at = None
 _routes_count = 0
-_routes_lock = threading.Lock()
+_routes_lock = asyncio.Lock()
 
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
@@ -219,17 +218,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Initialize semantic router if routes config is provided.
     # This triggers the FIRST MIGraphX compile (embedder, batch=64).
-    global _routes_file, _routes_hash, _routes_loaded_at, _routes_count
+    global _routes_hash, _routes_loaded_at, _routes_count
     if ROUTES_FILE:
-        from ragpipe.router import SemanticRouter, load_routes_config
-        import hashlib
         from datetime import UTC, datetime
 
-        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
-        _routes_file = ROUTES_FILE
-        _routes_count = len(configs)
+        from ragpipe.router import SemanticRouter, load_routes_config
+
         with open(ROUTES_FILE, "rb") as f:
-            _routes_hash = hashlib.sha256(f.read()).hexdigest()
+            raw_bytes = f.read()
+        configs, threshold, fallback = load_routes_config(ROUTES_FILE)
+        _routes_count = len(configs)
+        _routes_hash = hashlib.sha256(raw_bytes).hexdigest()
         _routes_loaded_at = datetime.now(UTC).isoformat()
         _router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
         log.info("Semantic router initialized with %d routes from %s", len(configs), ROUTES_FILE)
@@ -913,14 +912,8 @@ async def embeddings(request: Request):
     )
 
 
-@app.post("/admin/reload-prompt")
-async def reload_prompt(request: Request):
-    """Hot-reload the system prompt from file/env/default.
-
-    Requires RAGPIPE_ADMIN_TOKEN to be set and passed as a Bearer token.
-    The adversarial tuning agent writes a new prompt file, then calls
-    this endpoint to apply it without restarting ragpipe.
-    """
+def _check_admin_auth(request: Request) -> JSONResponse | None:
+    """Verify RAGPIPE_ADMIN_TOKEN bearer auth. Returns error response or None."""
     if not ADMIN_TOKEN:
         return JSONResponse(
             {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
@@ -929,6 +922,20 @@ async def reload_prompt(request: Request):
     auth = request.headers.get("authorization", "")
     if auth != f"Bearer {ADMIN_TOKEN}":
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return None
+
+
+@app.post("/admin/reload-prompt")
+async def reload_prompt(request: Request):
+    """Hot-reload the system prompt from file/env/default.
+
+    Requires RAGPIPE_ADMIN_TOKEN to be set and passed as a Bearer token.
+    The adversarial tuning agent writes a new prompt file, then calls
+    this endpoint to apply it without restarting ragpipe.
+    """
+    error = _check_admin_auth(request)
+    if error:
+        return error
 
     from ragpipe.grounding import reload_system_prompt
 
@@ -942,16 +949,11 @@ async def reload_routes(request: Request):
 
     Requires RAGPIPE_ADMIN_TOKEN bearer auth. Non-blocking for in-flight requests.
     """
-    global _router, _routes_file, _routes_hash, _routes_loaded_at, _routes_count, embedder
+    global _router, _routes_hash, _routes_loaded_at, _routes_count, embedder
 
-    if not ADMIN_TOKEN:
-        return JSONResponse(
-            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
-            status_code=403,
-        )
-    auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {ADMIN_TOKEN}":
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    error = _check_admin_auth(request)
+    if error:
+        return error
 
     if not ROUTES_FILE:
         return JSONResponse(
@@ -959,7 +961,6 @@ async def reload_routes(request: Request):
             status_code=404,
         )
 
-    import hashlib
     import pathlib
     from datetime import UTC, datetime
 
@@ -970,53 +971,61 @@ async def reload_routes(request: Request):
             status_code=404,
         )
 
+    # Read once — hash and parse from the same bytes to avoid TOCTOU race
+    raw_bytes = path.read_bytes()
+    new_hash = hashlib.sha256(raw_bytes).hexdigest()
+
     try:
         from ragpipe.router import SemanticRouter, load_routes_config
+
         configs, threshold, fallback = load_routes_config(ROUTES_FILE)
     except Exception as e:
         return JSONResponse(
-            {"error": f"Failed to parse routes file: {str(e)}"},
+            {"error": f"Failed to parse routes file: {e}"},
             status_code=400,
         )
 
-    with _routes_lock:
-        new_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    async with _routes_lock:
         changed = new_hash != _routes_hash
 
         if changed:
             old_router = _router
-            new_router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
-            if old_router:
-                await old_router.close_all()
+            # SemanticRouter.__init__ embeds route examples — run in thread
+            # pool to avoid blocking the event loop on MIGraphX inference
+            new_router = await asyncio.get_event_loop().run_in_executor(
+                _embed_executor,
+                lambda: SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback),
+            )
             _router = new_router
             _routes_hash = new_hash
             _routes_loaded_at = datetime.now(UTC).isoformat()
             _routes_count = len(configs)
             log.info("Routes reloaded (hash=%s, route_count=%d)", new_hash[:16], _routes_count)
+            # Close old router resources after swap so in-flight requests
+            # that grabbed the old router can finish
+            if old_router:
+                await old_router.close_all()
         else:
             log.info("Routes unchanged (hash=%s)", new_hash[:16])
 
-    return JSONResponse({
-        "status": "reloaded",
-        "changed": changed,
-        "route_count": _routes_count,
-        "hash": _routes_hash,
-    })
+    return JSONResponse(
+        {
+            "status": "reloaded",
+            "changed": changed,
+            "route_count": _routes_count,
+            "hash": _routes_hash,
+        }
+    )
 
 
 @app.post("/admin/reload-system-prompt")
 async def reload_system_prompt_endpoint(request: Request):
     """Alias for /admin/reload-prompt for consistency with reload-routes."""
-    if not ADMIN_TOKEN:
-        return JSONResponse(
-            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
-            status_code=403,
-        )
-    auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {ADMIN_TOKEN}":
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    error = _check_admin_auth(request)
+    if error:
+        return error
 
-    from ragpipe.grounding import reload_system_prompt, SYSTEM_PROMPT_HASH
+    from ragpipe.grounding import reload_system_prompt
 
     result = reload_system_prompt()
     return JSONResponse(result)
@@ -1024,28 +1033,33 @@ async def reload_system_prompt_endpoint(request: Request):
 
 @app.get("/admin/config")
 async def get_config(request: Request):
-    """Return current config state for observability. No auth required."""
-    from ragpipe.grounding import SYSTEM_PROMPT_HASH, SYSTEM_PROMPT, SYSTEM_PROMPT_LOADED_AT
+    """Return current config state for observability."""
+    error = _check_admin_auth(request)
+    if error:
+        return error
 
-    response = {
-        "routes_file": ROUTES_FILE,
-        "routes_hash": _routes_hash,
-        "routes_loaded_at": _routes_loaded_at,
-        "route_count": _routes_count,
-        "prompt_file": os.environ.get("RAGPIPE_SYSTEM_PROMPT_FILE"),
-        "prompt_hash": SYSTEM_PROMPT_HASH,
-        "prompt_loaded_at": SYSTEM_PROMPT_LOADED_AT,
-    }
+    from ragpipe.grounding import SYSTEM_PROMPT_HASH, SYSTEM_PROMPT_LOADED_AT
 
     prompt_file = os.environ.get("RAGPIPE_SYSTEM_PROMPT_FILE")
     if prompt_file:
-        response["prompt_source"] = f"file:{prompt_file}"
+        prompt_source = f"file:{prompt_file}"
     elif os.environ.get("RAGPIPE_SYSTEM_PROMPT"):
-        response["prompt_source"] = "env:RAGPIPE_SYSTEM_PROMPT"
+        prompt_source = "env:RAGPIPE_SYSTEM_PROMPT"
     else:
-        response["prompt_source"] = "default"
+        prompt_source = "default"
 
-    return JSONResponse(response)
+    return JSONResponse(
+        {
+            "routes_file": ROUTES_FILE,
+            "routes_hash": _routes_hash,
+            "routes_loaded_at": _routes_loaded_at,
+            "route_count": _routes_count,
+            "prompt_file": prompt_file,
+            "prompt_hash": SYSTEM_PROMPT_HASH,
+            "prompt_loaded_at": SYSTEM_PROMPT_LOADED_AT,
+            "prompt_source": prompt_source,
+        }
+    )
 
 
 @app.post("/admin/classify")
@@ -1055,14 +1069,9 @@ async def classify_query(request: Request):
     Requires RAGPIPE_ADMIN_TOKEN. Returns the selected route, score, and
     all route scores for tuning centroid quality.
     """
-    if not ADMIN_TOKEN:
-        return JSONResponse(
-            {"error": "RAGPIPE_ADMIN_TOKEN not configured — admin endpoints disabled"},
-            status_code=403,
-        )
-    auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {ADMIN_TOKEN}":
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    error = _check_admin_auth(request)
+    if error:
+        return error
     if _router is None:
         return JSONResponse(
             {"error": "No routes configured — set RAGPIPE_ROUTES_FILE"},
