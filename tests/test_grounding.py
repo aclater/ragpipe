@@ -129,7 +129,10 @@ def test_validate_citations_all_valid():
     citations = [("doc1", 0), ("doc1", 1)]
     retrieved = {("doc1", 0), ("doc1", 1)}
     mock_ds = MagicMock()
-    mock_ds.get_chunks.return_value = {("doc1", 0): "text0", ("doc1", 1): "text1"}
+    mock_ds.get_chunks.return_value = {
+        ("doc1", 0): {"text": "text0", "title": "", "source": ""},
+        ("doc1", 1): {"text": "text1", "title": "", "source": ""},
+    }
 
     valid, errors = mod.validate_citations(citations, retrieved, mock_ds)
     assert len(valid) == 2
@@ -141,7 +144,10 @@ def test_validate_citations_not_in_retrieved():
     citations = [("doc1", 0), ("doc2", 5)]
     retrieved = {("doc1", 0)}
     mock_ds = MagicMock()
-    mock_ds.get_chunks.return_value = {("doc1", 0): "text0", ("doc2", 5): "text5"}
+    mock_ds.get_chunks.return_value = {
+        ("doc1", 0): {"text": "text0", "title": "", "source": ""},
+        ("doc2", 5): {"text": "text5", "title": "", "source": ""},
+    }
 
     valid, errors = mod.validate_citations(citations, retrieved, mock_ds)
     assert len(valid) == 1
@@ -266,7 +272,9 @@ def test_metadata_corpus():
     mod = _reload()
     meta = mod.build_metadata("Answer [a:0] and [b:1]", [("a", 0), ("b", 1)], "full")
     assert meta["grounding"] == "corpus"
-    assert meta["cited_chunks"] == ["a:0", "b:1"]
+    assert len(meta["cited_chunks"]) == 2
+    assert meta["cited_chunks"][0] == {"id": "a:0", "title": "", "source": ""}
+    assert meta["cited_chunks"][1] == {"id": "b:1", "title": "", "source": ""}
     assert meta["corpus_coverage"] == "full"
 
 

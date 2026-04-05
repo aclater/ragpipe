@@ -53,14 +53,14 @@ def store(request, sqlite_store, pg_store):
 
 def test_upsert_and_get_single(store):
     store.upsert_chunk("test-doc1", 0, "hello world", "test.md")
-    assert store.get_chunk("test-doc1", 0) == "hello world"
+    assert store.get_chunk("test-doc1", 0)["text"] == "hello world"
 
 
 def test_upsert_idempotent(store):
     """Re-inserting same (doc_id, chunk_id) updates text, no duplicates."""
     store.upsert_chunk("test-doc2", 0, "version 1", "test.md")
     store.upsert_chunk("test-doc2", 0, "version 2", "test.md")
-    assert store.get_chunk("test-doc2", 0) == "version 2"
+    assert store.get_chunk("test-doc2", 0)["text"] == "version 2"
 
 
 def test_get_missing_returns_none(store):
@@ -71,7 +71,7 @@ def test_batch_upsert(store):
     chunks = [{"doc_id": "test-batch", "chunk_id": i, "text": f"chunk {i}", "source": "batch.md"} for i in range(5)]
     store.upsert_chunks(chunks)
     for i in range(5):
-        assert store.get_chunk("test-batch", i) == f"chunk {i}"
+        assert store.get_chunk("test-batch", i)["text"] == f"chunk {i}"
 
 
 def test_batch_upsert_idempotent(store):
@@ -83,7 +83,7 @@ def test_batch_upsert_idempotent(store):
     store.upsert_chunks(chunks_v2)
 
     for i in range(3):
-        assert store.get_chunk("test-idem", i) == f"v2 chunk {i}"
+        assert store.get_chunk("test-idem", i)["text"] == f"v2 chunk {i}"
 
 
 def test_batch_get(store):
@@ -94,9 +94,9 @@ def test_batch_get(store):
     result = store.get_chunks(refs)
 
     assert len(result) == 3
-    assert result[("test-bget", 0)] == "text 0"
-    assert result[("test-bget", 2)] == "text 2"
-    assert result[("test-bget", 4)] == "text 4"
+    assert result[("test-bget", 0)]["text"] == "text 0"
+    assert result[("test-bget", 2)]["text"] == "text 2"
+    assert result[("test-bget", 4)]["text"] == "text 4"
 
 
 def test_batch_get_with_missing(store):
@@ -115,6 +115,9 @@ def test_batch_get_empty(store):
 def test_delete_doc(store):
     chunks = [{"doc_id": "test-del", "chunk_id": i, "text": f"del {i}", "source": "d.md"} for i in range(3)]
     store.upsert_chunks(chunks)
+    for i in range(3):
+        assert store.get_chunk("test-del", i) is None
+
     store.delete_doc("test-del")
     for i in range(3):
         assert store.get_chunk("test-del", i) is None
@@ -124,7 +127,7 @@ def test_factory_sqlite(tmp_path):
     os.environ["DOCSTORE_SQLITE_PATH"] = str(tmp_path / "factory.db")
     store = create_docstore(backend="sqlite")
     store.upsert_chunk("test-factory", 0, "works", "f.md")
-    assert store.get_chunk("test-factory", 0) == "works"
+    assert store.get_chunk("test-factory", 0)["text"] == "works"
     os.environ.pop("DOCSTORE_SQLITE_PATH", None)
 
 
@@ -162,7 +165,7 @@ def test_cache_batch_get_partial_hit(tmp_path):
     # Batch get all three — chunk 0 should be cached, 1 and 2 fetched
     result = store.get_chunks([("test-p1", 0), ("test-p1", 1), ("test-p1", 2)])
     assert len(result) == 3
-    assert result[("test-p1", 0)] == "text 0"
+    assert result[("test-p1", 0)]["text"] == "text 0"
 
 
 def test_cache_invalidated_on_upsert(tmp_path):
@@ -172,10 +175,10 @@ def test_cache_invalidated_on_upsert(tmp_path):
     store = CachedDocstore(backend, maxsize=100)
 
     store.upsert_chunk("test-inv", 0, "v1", "i.md")
-    assert store.get_chunk("test-inv", 0) == "v1"
+    assert store.get_chunk("test-inv", 0)["text"] == "v1"
 
     store.upsert_chunk("test-inv", 0, "v2", "i.md")
-    assert store.get_chunk("test-inv", 0) == "v2"
+    assert store.get_chunk("test-inv", 0)["text"] == "v2"
 
 
 def test_cache_invalidated_on_delete(tmp_path):
@@ -221,7 +224,7 @@ async def test_cache_async_get(tmp_path):
     store.get_chunk("test-async", 0)
 
     result = await store.get_chunks_async([("test-async", 0)])
-    assert result[("test-async", 0)] == "async text"
+    assert result[("test-async", 0)]["text"] == "async text"
     assert store.cache_stats["hits"] >= 2
 
 
