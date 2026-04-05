@@ -120,7 +120,7 @@ Two variants are published, both UBI9 Python 3.11, models pre-downloaded, non-ro
 | Variant | Tag | Containerfile | ONNX Runtime package | Base | GPU support |
 |---------|-----|---------------|---------------------|------|-------------|
 | CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | UBI9 Python 3.11 | None (CPU only) |
-| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-migraphx` 1.23.2 (from AMD repo) | rocm/dev-ubuntu-24.04:7.2.1 | MIGraphXExecutionProvider |
+| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-migraphx` 1.24.2 (from AMD repo) | rocm/dev-ubuntu-24.04:7.2.1 | MIGraphXExecutionProvider |
 
 ```bash
 # CPU variant

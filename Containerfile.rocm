@@ -26,7 +26,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir --break-system-packages . && \
     pip uninstall -y --break-system-packages onnxruntime && \
     pip install --no-cache-dir --break-system-packages \
-        onnxruntime_migraphx==1.23.2 \
+        onnxruntime_migraphx==1.24.2 \
         -f https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/
 
 # Pre-download ONNX models so first request isn't slow.
