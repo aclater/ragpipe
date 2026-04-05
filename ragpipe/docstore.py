@@ -102,6 +102,20 @@ class PostgresDocstore(DocstoreBackend):
                     PRIMARY KEY (doc_id, chunk_id)
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS query_log (
+                    collection_id TEXT,
+                    query_text TEXT,
+                    query_hash TEXT,
+                    grounding TEXT,
+                    cited_chunks TEXT,
+                    total_chunks INT,
+                    latency_ms INT,
+                    model TEXT,
+                    route TEXT,
+                    created_at TIMESTAMP DEFAULT now()
+                )
+            """)
         self._schema_ready = True
 
     def init_schema(self) -> None:
@@ -240,6 +254,20 @@ class SQLiteDocstore(DocstoreBackend):
                 title      TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (doc_id, chunk_id)
+            )
+        """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS query_log (
+                collection_id TEXT,
+                query_text TEXT,
+                query_hash TEXT,
+                grounding TEXT,
+                cited_chunks TEXT,
+                total_chunks INTEGER,
+                latency_ms INTEGER,
+                model TEXT,
+                route TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self._conn.commit()
