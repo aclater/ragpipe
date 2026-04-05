@@ -36,14 +36,15 @@ def _get_model():
 
 
 def warm_up():
-    """Load the model eagerly at startup instead of on first request.
+    """Load the model and trigger MIGraphX graph compilation.
 
-    Does NOT trigger a dummy inference — MIGraphX crashes when compiling
-    MiniLM-L-6 at batch_size=64 on gfx1151 (UNREACHABLE in AmdArchDb).
-    The first real rerank request will trigger a fast compile for the
-    actual batch size (typically 15-40 candidates).
+    Runs a dummy score call with MIGRAPHX_BATCH_SIZE pairs so the
+    compiled graph matches production traffic — one compile at startup,
+    cached forever. The padding inside score() ensures the input
+    tensor shape is always (MIGRAPHX_BATCH_SIZE, pad_length).
     """
-    _get_model()
+    model = _get_model()
+    model.score("warmup", ["warmup"])
 
 
 def rerank(

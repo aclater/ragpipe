@@ -60,6 +60,27 @@ examples/
 - Models downloaded from HuggingFace Hub, cached in RAGPIPE_MODEL_CACHE
 - Default embedding model (Alibaba-NLP/gte-modernbert-base) is quantized ONNX, 768d, CLS pooling
 
+## MIGraphX — AMD GPU inference
+
+MIGraphXExecutionProvider is the correct and intended AMD GPU execution
+provider for ONNX Runtime on this system. ROCMExecutionProvider is
+ABI-incompatible with ROCm 7.2 (`onnxruntime-rocm` 1.22.2 links against
+ROCm 6.x `.so` versions — `libhipblas.so.2` vs `.so.3`,
+`libamdhip64.so.6` vs `.so.7`). It silently falls back to CPU.
+
+MIGraphX compiles static computation graphs at first use (JIT). All inputs
+must be padded to a fixed batch size (`MIGRAPHX_BATCH_SIZE=64`) before
+inference and sliced after. The startup warmup must use exactly 64 inputs
+so the compiled graph matches production traffic — one compile, cached
+forever.
+
+`RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE`. An assertion at startup
+enforces this. Do not remove it.
+
+Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
+errors against ROCm 7.x and is no longer maintained by AMD. The only
+alternative is CPUExecutionProvider, which works but is significantly slower.
+
 ## Known issues
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
 - LLM phrasing variance: negative finding classifier depends on recognizable negation patterns before the ⚠️ marker — when the model phrases differently, classification may vary between runs

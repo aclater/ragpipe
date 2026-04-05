@@ -24,8 +24,9 @@ ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 # for a specific tensor shape and errors on shape mismatch. Padding all
 # inputs to this batch size means the graph is compiled once at startup
 # and reused for every subsequent call. Must match or exceed the largest
-# batch size used by callers (ragstuffer defaults to 64).
-ONNX_BATCH_SIZE = int(os.environ.get("ONNX_BATCH_SIZE", "64"))
+# batch size used by any caller (ragstuffer defaults to 64, reranker
+# receives up to RAG_TOP_K candidates). See CLAUDE.md § MIGraphX.
+MIGRAPHX_BATCH_SIZE = int(os.environ.get("MIGRAPHX_BATCH_SIZE", "64"))
 
 # Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
 # MIGraphX is the only AMD GPU provider in ORT 1.23+ (ROCMExecutionProvider removed).
@@ -166,22 +167,22 @@ class Embedder:
     def embed(self, texts: list[str]) -> np.ndarray:
         """Embed a batch of texts. Returns (batch_size, embedding_dim) float32 array.
 
-        Inputs are padded to ONNX_BATCH_SIZE so MIGraphX only compiles
-        one graph shape. Batches larger than ONNX_BATCH_SIZE are split
+        Inputs are padded to MIGRAPHX_BATCH_SIZE so MIGraphX only compiles
+        one graph shape. Batches larger than MIGRAPHX_BATCH_SIZE are split
         and processed in sub-batches.
         """
         if self._session is None:
             self.load()
 
-        if len(texts) > ONNX_BATCH_SIZE:
+        if len(texts) > MIGRAPHX_BATCH_SIZE:
             parts = []
-            for i in range(0, len(texts), ONNX_BATCH_SIZE):
-                parts.append(self.embed(texts[i : i + ONNX_BATCH_SIZE]))
+            for i in range(0, len(texts), MIGRAPHX_BATCH_SIZE):
+                parts.append(self.embed(texts[i : i + MIGRAPHX_BATCH_SIZE]))
             return np.concatenate(parts, axis=0)
 
         actual = len(texts)
         # Pad to fixed batch size for stable MIGraphX graph shape
-        padded_texts = texts + [""] * (ONNX_BATCH_SIZE - actual) if actual < ONNX_BATCH_SIZE else texts
+        padded_texts = texts + [""] * (MIGRAPHX_BATCH_SIZE - actual) if actual < MIGRAPHX_BATCH_SIZE else texts
 
         encoded = self._tokenizer.encode_batch(padded_texts)
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
@@ -250,19 +251,28 @@ class Reranker:
     def score(self, query: str, documents: list[str]) -> list[float]:
         """Score (query, document) pairs. Returns list of relevance scores.
 
-        Unlike Embedder, batch padding is NOT applied here. MIGraphX
-        crashes with UNREACHABLE (AmdArchDb.cpp:379 unsupported architecture)
-        when compiling MiniLM-L-6 at batch_size=64 on gfx1151. The reranker
-        handles variable batch sizes via per-shape recompilation (small
-        batches compile quickly, unlike the embedder's larger model).
+        Inputs are padded to MIGRAPHX_BATCH_SIZE for stable MIGraphX
+        graph shape, same as Embedder. Batches larger than
+        MIGRAPHX_BATCH_SIZE are split into sub-batches.
         """
         if not documents:
             return []
         if self._session is None:
             self.load()
 
-        # Tokenize as (query, document) pairs
-        encoded = self._tokenizer.encode_batch([(query, doc) for doc in documents])
+        if len(documents) > MIGRAPHX_BATCH_SIZE:
+            scores = []
+            for i in range(0, len(documents), MIGRAPHX_BATCH_SIZE):
+                scores.extend(self.score(query, documents[i : i + MIGRAPHX_BATCH_SIZE]))
+            return scores
+
+        actual = len(documents)
+        pairs = [(query, doc) for doc in documents]
+        # Pad to fixed batch size for stable MIGraphX graph shape
+        if actual < MIGRAPHX_BATCH_SIZE:
+            pairs += [("", "")] * (MIGRAPHX_BATCH_SIZE - actual)
+
+        encoded = self._tokenizer.encode_batch(pairs)
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
 
@@ -272,4 +282,4 @@ class Reranker:
 
         outputs = self._session.run(None, onnx_input)
         # Cross-encoder output: logits column 0 is the relevance score
-        return [float(s) for s in outputs[0][:, 0]]
+        return [float(s) for s in outputs[0][:actual, 0]]

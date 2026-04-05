@@ -113,6 +113,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         log.warning("Qdrant unavailable at %s — will retry on first request", QDRANT_URL)
         qdrant = None
 
+    # Guard: RAG_TOP_K must not exceed MIGRAPHX_BATCH_SIZE or MIGraphX
+    # will encounter a shape mismatch on the reranker's first real call.
+    from ragpipe.models import MIGRAPHX_BATCH_SIZE
+
+    if TOP_K > MIGRAPHX_BATCH_SIZE:
+        raise RuntimeError(
+            f"RAG_TOP_K={TOP_K} exceeds MIGRAPHX_BATCH_SIZE={MIGRAPHX_BATCH_SIZE}. "
+            f"MIGraphX compiles static graphs — all batch dims must fit within "
+            f"MIGRAPHX_BATCH_SIZE. Increase MIGRAPHX_BATCH_SIZE or reduce RAG_TOP_K."
+        )
+
     log.info("Loading embedding model: %s (ONNX Runtime)", EMBED_MODEL)
     embedder = Embedder(repo_id=EMBED_MODEL)
     embedder.load()
@@ -126,27 +137,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         log.warning("Docstore unavailable — will retry on first request")
         docstore = None
 
-    # Warm up the reranker so first request isn't slow
-    try:
-        from ragpipe.reranker import warm_up
-
-        warm_up()
-    except Exception:
-        log.warning("Reranker warm-up failed — will load on first request")
-
     # Persistent httpx client — reuses TCP connections to the model
     _http_client = httpx.AsyncClient(
         timeout=300,
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
     )
 
-    # Initialize semantic router if routes config is provided
+    # Initialize semantic router if routes config is provided.
+    # This triggers the FIRST MIGraphX compile (embedder, batch=64).
     if ROUTES_FILE:
         from ragpipe.router import SemanticRouter, load_routes_config
 
         configs, threshold, fallback = load_routes_config(ROUTES_FILE)
         _router = SemanticRouter(configs, embedder, threshold=threshold, fallback_route=fallback)
         log.info("Semantic router initialized with %d routes from %s", len(configs), ROUTES_FILE)
+
+    # Warm up the reranker AFTER the embedder compile finishes.
+    # MIGraphX cannot compile two graphs concurrently — sequential
+    # warmup avoids crashes from concurrent rocMLIR compilations.
+    # This triggers the SECOND MIGraphX compile (reranker, batch=64).
+    try:
+        from ragpipe.reranker import warm_up
+
+        warm_up()
+    except Exception:
+        log.warning("Reranker warm-up failed — will load on first request")
     else:
         log.info("No RAGPIPE_ROUTES_FILE — single-pipeline mode")
 
