@@ -103,7 +103,7 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
         return ""
 
     # Collect unique doc_ids and fetch their header chunks (chunk 0)
-    doc_headers: dict[str, str] = {}
+    doc_headers: dict[str, dict] = {}
     if docstore:
         seen_doc_ids = {r["doc_id"] for r in ranked_chunks if r.get("doc_id")}
         # Only fetch headers for docs where chunk 0 isn't already in the results
@@ -111,9 +111,12 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
         need_headers = [(did, 0) for did in seen_doc_ids if (did, 0) not in result_keys]
         if need_headers:
             headers = docstore.get_chunks(need_headers)
-            for (did, _), text in headers.items():
+            for (did, _), chunk_data in headers.items():
+                text = chunk_data.get("text", "") if isinstance(chunk_data, dict) else (chunk_data or "")
+                title = chunk_data.get("title", "") if isinstance(chunk_data, dict) else ""
+                source = chunk_data.get("source", "") if isinstance(chunk_data, dict) else ""
                 # Truncate header to first 500 chars — just need the title
-                doc_headers[did] = text[:500]
+                doc_headers[did] = {"text": text[:500], "title": title, "source": source}
 
     parts = []
     header_emitted: set[str] = set()
@@ -121,14 +124,21 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
         doc_id = r.get("doc_id", "unknown")
         chunk_id = r.get("chunk_id", 0)
         source = r.get("source", "unknown")
+        title = r.get("title", "")
         text = r.get("text", "")
 
         # Emit document header once before the first chunk from each document
         if doc_id not in header_emitted and doc_id in doc_headers:
-            parts.append(f"[{doc_id}:0] (Source: {source}) — DOCUMENT HEADER:\n{doc_headers[doc_id]}")
+            hdr = doc_headers[doc_id]
+            hdr_title = hdr.get("title", "")
+            hdr_source = hdr.get("source", source)
+            hdr_text = hdr.get("text", "")
+            title_part = f'(from: "{hdr_title}") ' if hdr_title else ""
+            parts.append(f"[{doc_id}:0] {title_part}(Source: {hdr_source}) — DOCUMENT HEADER:\n{hdr_text}")
             header_emitted.add(doc_id)
 
-        parts.append(f"[{doc_id}:{chunk_id}] (Source: {source})\n{text}")
+        title_part = f'(from: "{title}") ' if title else ""
+        parts.append(f"[{doc_id}:{chunk_id}] {title_part}(Source: {source})\n{text}")
 
     return "\n\n".join(parts)
 
