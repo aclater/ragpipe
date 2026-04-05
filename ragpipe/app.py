@@ -97,16 +97,10 @@ _qdrant_cache_lock = threading.Lock()
 # Query-log writer — asyncpg pool for direct writes to query_log.
 # Uses the same DOCSTORE_URL as the docstore since they share the DB.
 _query_log_pool = None
-_query_log_init_lock: asyncio.Lock | None = None
+_query_log_init_lock = None  # Initialized during lifespan to use event loop
+
+# Background tasks set — prevents premature GC of fire-and-forget tasks
 _background_tasks: set[asyncio.Task] = set()
-
-
-def _get_query_log_init_lock() -> asyncio.Lock:
-    """Lazy-init asyncio.Lock (cannot be created at module level without a loop)."""
-    global _query_log_init_lock
-    if _query_log_init_lock is None:
-        _query_log_init_lock = asyncio.Lock()
-    return _query_log_init_lock
 
 
 async def _get_query_log_pool():
@@ -114,7 +108,7 @@ async def _get_query_log_pool():
     global _query_log_pool
     if _query_log_pool is not None:
         return _query_log_pool
-    async with _get_query_log_init_lock():
+    async with _query_log_init_lock:
         if _query_log_pool is not None:
             return _query_log_pool
         from ragpipe.docstore import DOCSTORE_URL
@@ -166,16 +160,11 @@ async def _write_query_log(
         log.warning("Failed to write query_log entry — continuing", exc_info=True)
 
 
-def _fire_and_forget(coro) -> None:
-    """Schedule a coroutine as a background task with GC-safe tracking."""
-    task = asyncio.create_task(coro, name="query_log_write")
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    global qdrant, embedder, docstore, _collection_exists, _http_client, _router, _ready
+    global qdrant, embedder, docstore, _collection_exists, _http_client, _router, _ready, _query_log_init_lock
+    # Initialize async lock for query log pool
+    _query_log_init_lock = asyncio.Lock()
     # Qdrant — deferred; RAG context unavailable until Qdrant is reachable
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     try:
@@ -617,7 +606,7 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         try:
             cited_chunk_titles = effective_ds.get_chunks(valid_citations)
         except Exception:
-            log.debug("Failed to resolve cited chunk titles — using empty strings", exc_info=True)
+            log.exception("Failed to resolve chunk titles for cited chunks")
 
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
@@ -681,7 +670,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
         try:
             cited_chunk_titles = effective_ds.get_chunks(valid_citations)
         except Exception:
-            log.debug("Failed to resolve cited chunk titles (streamed) — using empty strings", exc_info=True)
+            log.exception("Failed to resolve chunk titles for cited chunks (streaming)")
 
     log_audit(
         q_hash=query_hash(user_query),
@@ -820,7 +809,7 @@ async def chat_completions(request: Request):
                 if metadata:
                     model = body.get("model")
                     route_name = retrieval_ctx.get("route_name")
-                    _fire_and_forget(
+                    task = asyncio.create_task(
                         _write_query_log(
                             query_text=retrieval_ctx.get("user_query", ""),
                             query_hash=query_hash(retrieval_ctx.get("user_query", "")),
@@ -831,8 +820,11 @@ async def chat_completions(request: Request):
                             model=model,
                             route=route_name,
                             collection_id=None,
-                        )
+                        ),
+                        name="query_log_write",
                     )
+                    _background_tasks.add(task)
+                    task.add_done_callback(lambda t: _background_tasks.discard(t))
 
         return StreamingResponse(
             validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
@@ -854,7 +846,7 @@ async def chat_completions(request: Request):
         if metadata:
             model = body.get("model")
             route_name = retrieval_ctx.get("route_name")
-            _fire_and_forget(
+            task = asyncio.create_task(
                 _write_query_log(
                     query_text=retrieval_ctx.get("user_query", ""),
                     query_hash=query_hash(retrieval_ctx.get("user_query", "")),
@@ -865,8 +857,11 @@ async def chat_completions(request: Request):
                     model=model,
                     route=route_name,
                     collection_id=None,
-                )
+                ),
+                name="query_log_write",
             )
+            _background_tasks.add(task)
+            task.add_done_callback(lambda t: _background_tasks.discard(t))
         return JSONResponse(content=response_data)
 
 
