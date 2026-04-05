@@ -997,6 +997,22 @@ def _check_admin_auth(request: Request) -> JSONResponse | None:
     return None
 
 
+@app.get("/admin/mxr-status")
+async def mxr_status(request: Request):
+    """Return MXR pre-compilation cache status for all models.
+
+    Shows which models have cached .mxr files and their sizes.
+    Requires RAGPIPE_ADMIN_TOKEN.
+    """
+    error = _check_admin_auth(request)
+    if error:
+        return error
+
+    from ragpipe.models import get_mxr_status
+
+    return JSONResponse(get_mxr_status())
+
+
 @app.post("/admin/reload-prompt")
 async def reload_prompt(request: Request):
     """Hot-reload the system prompt from file/env/default.

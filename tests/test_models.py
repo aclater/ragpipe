@@ -4,7 +4,7 @@ from unittest import mock
 
 import numpy as np
 
-from ragpipe.models import Embedder, Reranker, _get_providers
+from ragpipe.models import Embedder, Reranker, _get_providers, _mxr_cache_path, get_mxr_status
 
 # ── Embedder ─────────────────────────────────────────────────────────────────
 
@@ -172,3 +172,49 @@ def test_get_providers_invalid_device_falls_back():
     with p_ctx, e_ctx:
         providers = _get_providers()
     assert providers == ["CPUExecutionProvider"]
+
+
+# ── MXR cache ──────────────────────────────────────────────────────────────
+
+
+def test_mxr_cache_path_encodes_batch_size():
+    """MXR cache path must encode batch size to detect shape mismatches."""
+    path = _mxr_cache_path("Alibaba-NLP/gte-modernbert-base")
+    assert "b64" in path.name
+    assert "p128" in path.name
+    assert "Alibaba-NLP--gte-modernbert-base" in path.name
+
+
+def test_mxr_cache_path_changes_with_batch_size():
+    """Different batch sizes must produce different cache paths."""
+    import ragpipe.models as m
+
+    original = m.MIGRAPHX_BATCH_SIZE
+    try:
+        m.MIGRAPHX_BATCH_SIZE = 32
+        path32 = _mxr_cache_path("test-model")
+        m.MIGRAPHX_BATCH_SIZE = 64
+        path64 = _mxr_cache_path("test-model")
+        assert path32 != path64
+        assert "b32" in path32.name
+        assert "b64" in path64.name
+    finally:
+        m.MIGRAPHX_BATCH_SIZE = original
+
+
+def test_get_mxr_status_empty(tmp_path, monkeypatch):
+    """get_mxr_status returns empty models when cache dir is empty."""
+    monkeypatch.setattr("ragpipe.models.MXR_CACHE_DIR", tmp_path)
+    status = get_mxr_status()
+    assert status["models"] == {}
+
+
+def test_get_mxr_status_with_cached_model(tmp_path, monkeypatch):
+    """get_mxr_status detects cached .mxr files."""
+    monkeypatch.setattr("ragpipe.models.MXR_CACHE_DIR", tmp_path)
+    model_dir = tmp_path / "test-model_b64_p128"
+    model_dir.mkdir()
+    (model_dir / "model.mxr").write_bytes(b"\x00" * 1024)
+    status = get_mxr_status()
+    assert "test-model_b64_p128" in status["models"]
+    assert status["models"]["test-model_b64_p128"]["cached"] is True
