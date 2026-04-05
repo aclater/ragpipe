@@ -108,7 +108,7 @@ class PostgresDocstore(DocstoreBackend):
                     query_text TEXT,
                     query_hash TEXT,
                     grounding TEXT,
-                    cited_chunks TEXT,
+                    cited_chunks TEXT[],
                     total_chunks INT,
                     latency_ms INT,
                     model TEXT,
