@@ -88,6 +88,13 @@ Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
 errors against ROCm 7.x and is no longer maintained by AMD. The only
 alternative is CPUExecutionProvider, which works but is significantly slower.
 
+MIGraphX compiled model caching (`migraphx_save_compiled_model` provider
+option) exists in upstream ORT source but is NOT compiled into AMD's
+`onnxruntime-migraphx` builds (tested 1.23.2 and 1.24.2). The option is
+silently rejected, causing fallback to CPU. Do not attempt to use it.
+The 3-minute startup compile is currently unavoidable without building
+ORT from source with the cache flag enabled.
+
 ## Known issues
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
 - LLM phrasing variance: negative finding classifier depends on recognizable negation patterns before the ⚠️ marker — when the model phrases differently, classification may vary between runs
