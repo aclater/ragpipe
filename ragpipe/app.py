@@ -94,10 +94,77 @@ QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
 _qdrant_cache: collections.OrderedDict[tuple[str, str], list[dict]] = collections.OrderedDict()
 _qdrant_cache_lock = threading.Lock()
 
+# Query-log writer — asyncpg pool for direct writes to query_log.
+# Uses the same DOCSTORE_URL as the docstore since they share the DB.
+_query_log_pool = None
+_query_log_init_lock = None  # Initialized during lifespan to use event loop
+
+# Background tasks set — prevents premature GC of fire-and-forget tasks
+_background_tasks: set[asyncio.Task] = set()
+
+
+async def _get_query_log_pool():
+    """Lazy-init asyncpg pool for query_log writes. Fire-and-forget."""
+    global _query_log_pool
+    if _query_log_pool is not None:
+        return _query_log_pool
+    async with _query_log_init_lock:
+        if _query_log_pool is not None:
+            return _query_log_pool
+        from ragpipe.docstore import DOCSTORE_URL
+
+        if not DOCSTORE_URL:
+            return None
+        import asyncpg
+
+        _query_log_pool = await asyncpg.create_pool(DOCSTORE_URL, min_size=1, max_size=2)
+        return _query_log_pool
+
+
+async def _write_query_log(
+    *,
+    query_text: str,
+    query_hash: str,
+    grounding: str,
+    cited_chunks: list[str],
+    total_chunks: int,
+    latency_ms: int | None,
+    model: str | None,
+    route: str | None,
+    collection_id: str | None,
+) -> None:
+    """Write a completed request to query_log. Fire-and-forget, never surfaces errors."""
+    try:
+        pool = await _get_query_log_pool()
+        if pool is None:
+            return
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO query_log
+                    (collection_id, query_text, query_hash, grounding, cited_chunks,
+                     total_chunks, latency_ms, model, route)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                """,
+                collection_id,
+                query_text,
+                query_hash,
+                grounding,
+                cited_chunks,
+                total_chunks,
+                latency_ms,
+                model,
+                route,
+            )
+    except Exception:
+        log.warning("Failed to write query_log entry — continuing", exc_info=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    global qdrant, embedder, docstore, _collection_exists, _http_client, _router, _ready
+    global qdrant, embedder, docstore, _collection_exists, _http_client, _router, _ready, _query_log_init_lock
+    # Initialize async lock for query log pool
+    _query_log_init_lock = asyncio.Lock()
     # Qdrant — deferred; RAG context unavailable until Qdrant is reachable
     log.info("Connecting to Qdrant at %s", QDRANT_URL)
     try:
@@ -179,6 +246,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
 
     # Shutdown
+    global _query_log_pool
+    if _query_log_pool:
+        await _query_log_pool.close()
     if _router:
         await _router.close_all()
     if _http_client:
@@ -315,23 +385,28 @@ async def _hydrate(refs: list[dict], *, ds=None) -> list[dict]:
             log.warning("Docstore still unavailable — returning results without chunk text")
             return []
     lookup_keys = [(r["doc_id"], r["chunk_id"]) for r in refs]
-    texts = await effective_ds.get_chunks_async(lookup_keys)
+    chunks = await effective_ds.get_chunks_async(lookup_keys)
 
     hydrated = []
     for ref in refs:
         key = (ref["doc_id"], ref["chunk_id"])
-        text = texts.get(key)
-        if text is None:
+        chunk_data = chunks.get(key)
+        if chunk_data is None:
             log.warning(
                 "Orphaned vector: doc_id=%s chunk_id=%d — excluding from results",
                 ref["doc_id"],
                 ref["chunk_id"],
             )
             continue
+        text = chunk_data.get("text", "") if isinstance(chunk_data, dict) else (chunk_data or "")
+        title = chunk_data.get("title", "") if isinstance(chunk_data, dict) else ""
+        source_val = chunk_data.get("source", "") if isinstance(chunk_data, dict) else ""
+        source = source_val if source_val else ref.get("source", "unknown")
         hydrated.append(
             {
                 "text": text,
-                "source": ref.get("source", "unknown"),
+                "title": title,
+                "source": source,
                 "doc_id": ref["doc_id"],
                 "chunk_id": ref["chunk_id"],
             }
@@ -470,21 +545,24 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
     }
 
 
-def process_response(response_data: dict, ctx: dict) -> dict:
+def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
     """Post-process the LLM response: validate citations, add metadata, audit.
 
     This is where we parse the model's output, check that cited chunks are
     real and were in the retrieved set, classify the grounding mode, and
     emit the audit log. Crucially, this parsing is done by code — we never
     ask the LLM to generate the metadata.
+
+    Returns (response_data, metadata) — metadata is empty dict if response
+    has no choices or no content, signalling the caller to skip query_log.
     """
     choices = response_data.get("choices", [])
     if not choices:
-        return response_data
+        return response_data, {}
 
     content = choices[0].get("message", {}).get("content", "")
     if not content:
-        return response_data
+        return response_data, {}
 
     user_query = ctx.get("user_query", "")
     ranked = ctx.get("ranked", [])
@@ -520,7 +598,15 @@ def process_response(response_data: dict, ctx: dict) -> dict:
         citation_status = "pass"
 
     # Build metadata — populated by parsing, not by the LLM
-    metadata = build_metadata(content, valid_citations, corpus_coverage)
+    metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
+
+    # Resolve titles for audit log and query_log
+    cited_chunk_titles = {}
+    if effective_ds and valid_citations:
+        try:
+            cited_chunk_titles = effective_ds.get_chunks(valid_citations)
+        except Exception:
+            log.exception("Failed to resolve chunk titles for cited chunks")
 
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
@@ -533,12 +619,13 @@ def process_response(response_data: dict, ctx: dict) -> dict:
         grounding=metadata["grounding"],
         valid_citations=valid_citations,
         citation_validation=citation_status,
+        cited_chunk_titles=cited_chunk_titles,
     )
 
-    return response_data
+    return response_data, metadata
 
 
-def _validate_streamed_response(content: str, ctx: dict) -> None:
+def _validate_streamed_response(content: str, ctx: dict) -> dict:
     """Post-hoc validation for streamed responses.
 
     Runs the same citation validation, grounding classification, and
@@ -548,6 +635,8 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
     Invalid citations are logged as errors but cannot be stripped
     from the already-delivered stream. The audit log captures the
     grounding decision for observability and tuning.
+
+    Returns metadata dict (empty if no content) for query_log write.
     """
     user_query = ctx.get("user_query", "")
     ranked = ctx.get("ranked", [])
@@ -574,7 +663,14 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
     else:
         citation_status = "pass"
 
-    metadata = build_metadata(content, valid_citations, corpus_coverage)
+    metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
+
+    cited_chunk_titles = {}
+    if effective_ds and valid_citations:
+        try:
+            cited_chunk_titles = effective_ds.get_chunks(valid_citations)
+        except Exception:
+            log.exception("Failed to resolve chunk titles for cited chunks (streaming)")
 
     log_audit(
         q_hash=query_hash(user_query),
@@ -583,7 +679,10 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
         grounding=metadata["grounding"],
         valid_citations=valid_citations,
         citation_validation=citation_status,
+        cited_chunk_titles=cited_chunk_titles,
     )
+
+    return metadata
 
 
 def _format_perf_summary(timings: dict | None, usage: dict | None, ctx: dict) -> str:
@@ -706,7 +805,26 @@ async def chat_completions(request: Request):
             # Stream complete — run citation validation on accumulated text
             full_content = "".join(accumulated_content)
             if full_content:
-                _validate_streamed_response(full_content, retrieval_ctx)
+                metadata = _validate_streamed_response(full_content, retrieval_ctx)
+                if metadata:
+                    model = body.get("model")
+                    route_name = retrieval_ctx.get("route_name")
+                    task = asyncio.create_task(
+                        _write_query_log(
+                            query_text=retrieval_ctx.get("user_query", ""),
+                            query_hash=query_hash(retrieval_ctx.get("user_query", "")),
+                            grounding=metadata["grounding"],
+                            cited_chunks=[c["id"] for c in metadata.get("cited_chunks", [])],
+                            total_chunks=len(retrieval_ctx.get("ranked", [])),
+                            latency_ms=None,
+                            model=model,
+                            route=route_name,
+                            collection_id=None,
+                        ),
+                        name="query_log_write",
+                    )
+                    _background_tasks.add(task)
+                    task.add_done_callback(lambda t: _background_tasks.discard(t))
 
         return StreamingResponse(
             validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
@@ -724,7 +842,26 @@ async def chat_completions(request: Request):
             log.error("Model returned %d: %s", e.response.status_code, e.response.text[:200])
             return JSONResponse({"error": str(e)}, status_code=e.response.status_code)
         # Post-process: validate citations, classify grounding, audit
-        response_data = process_response(response_data, retrieval_ctx)
+        response_data, metadata = process_response(response_data, retrieval_ctx)
+        if metadata:
+            model = body.get("model")
+            route_name = retrieval_ctx.get("route_name")
+            task = asyncio.create_task(
+                _write_query_log(
+                    query_text=retrieval_ctx.get("user_query", ""),
+                    query_hash=query_hash(retrieval_ctx.get("user_query", "")),
+                    grounding=metadata["grounding"],
+                    cited_chunks=[c["id"] for c in metadata.get("cited_chunks", [])],
+                    total_chunks=len(retrieval_ctx.get("ranked", [])),
+                    latency_ms=None,
+                    model=model,
+                    route=route_name,
+                    collection_id=None,
+                ),
+                name="query_log_write",
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(lambda t: _background_tasks.discard(t))
         return JSONResponse(content=response_data)
 
 
