@@ -11,6 +11,7 @@ FROM docker.io/rocm/dev-ubuntu-24.04:7.2.1
 # hipblas: libhipblas.so (BLAS on HIP)
 # miopen-hip: libMIOpen.so (ML primitives — conv, pooling, etc.)
 # hipfft: libhipfft.so (FFT on HIP)
+# hadolint ignore=DL3008
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends migraphx hipblas miopen-hip hipfft && \
     # MIOpen kernel DBs may not have entries for gfx1151.

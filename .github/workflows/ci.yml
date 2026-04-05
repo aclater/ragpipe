@@ -108,3 +108,6 @@ jobs:
       - uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: Containerfile
+      - uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Containerfile.rocm
