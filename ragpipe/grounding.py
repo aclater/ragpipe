@@ -346,7 +346,11 @@ def build_metadata(
             log.warning("Failed to resolve titles from docstore for metadata", exc_info=True)
 
     cited_chunks = []
+    seen: set[tuple[str, int]] = set()
     for d, c in valid_citations:
+        if (d, c) in seen:
+            continue
+        seen.add((d, c))
         chunk_data = title_lookup.get((d, c), {})
         cited_chunks.append(
             {
@@ -408,7 +412,7 @@ def log_audit(
                 "title": cited_chunk_titles.get((d, c), {}).get("title", "") if cited_chunk_titles else "",
                 "source": cited_chunk_titles.get((d, c), {}).get("source", "") if cited_chunk_titles else "",
             }
-            for d, c in valid_citations
+            for d, c in dict.fromkeys(valid_citations)
         ],
         "citation_validation": citation_validation,
         "response_type": "answered",

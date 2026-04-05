@@ -286,6 +286,16 @@ def test_metadata_general():
     assert meta["corpus_coverage"] == "none"
 
 
+def test_metadata_cited_chunks_deduplicated():
+    """Duplicate citations produce unique cited_chunks, preserving insertion order."""
+    mod = _reload()
+    dupes = [("a", 0), ("a", 0), ("b", 1), ("a", 0), ("b", 1), ("c", 2)]
+    meta = mod.build_metadata("Answer [a:0] [a:0] [b:1] [a:0] [b:1] [c:2]", dupes, "full")
+    ids = [chunk["id"] for chunk in meta["cited_chunks"]]
+    assert ids == ["a:0", "b:1", "c:2"]
+    assert len(meta["cited_chunks"]) == 3
+
+
 # ── Audit logging ────────────────────────────────────────────────────────────
 
 
