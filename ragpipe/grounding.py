@@ -345,8 +345,14 @@ def build_metadata(
         except Exception:
             log.warning("Failed to resolve titles from docstore for metadata", exc_info=True)
 
+    # Deduplicate citations preserving insertion order — the model may
+    # reference the same chunk multiple times in a response.
+    seen: set[tuple[str, int]] = set()
     cited_chunks = []
     for d, c in valid_citations:
+        if (d, c) in seen:
+            continue
+        seen.add((d, c))
         chunk_data = title_lookup.get((d, c), {})
         cited_chunks.append(
             {

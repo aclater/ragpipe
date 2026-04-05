@@ -310,6 +310,25 @@ def test_metadata_general():
     assert meta["corpus_coverage"] == "none"
 
 
+def test_metadata_deduplicates_cited_chunks():
+    """Duplicate citations from streaming must produce unique cited_chunks."""
+    mod = _reload()
+    # Simulate model citing the same chunk 6 times
+    duplicated = [("a", 2)] * 6 + [("a", 4)] * 3
+    meta = mod.build_metadata("Answer [a:2] [a:2] [a:4] [a:2]", duplicated, "full")
+    ids = [c["id"] for c in meta["cited_chunks"]]
+    assert ids == ["a:2", "a:4"], f"Expected deduplicated list, got {ids}"
+
+
+def test_metadata_dedup_preserves_insertion_order():
+    """Deduplication must preserve the order of first occurrence."""
+    mod = _reload()
+    citations = [("b", 1), ("a", 0), ("b", 1), ("a", 0), ("c", 3)]
+    meta = mod.build_metadata("text", citations, "full")
+    ids = [c["id"] for c in meta["cited_chunks"]]
+    assert ids == ["b:1", "a:0", "c:3"]
+
+
 # ── Audit logging ────────────────────────────────────────────────────────────
 
 
