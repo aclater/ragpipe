@@ -8,13 +8,13 @@ citation validation and grounding classification.
 
 import asyncio
 import collections
-import functools
 import hashlib
 import json
 import logging
 import os
 import sys
 import threading
+import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from qdrant_client import QdrantClient
 
 from ragpipe.grounding import (
@@ -35,6 +35,17 @@ from ragpipe.grounding import (
     query_hash,
     strip_invalid_citations,
     validate_citations,
+)
+from ragpipe.metrics import (
+    get_metrics,
+    ragpipe_chunks_passed_reranker_total,
+    ragpipe_chunks_retrieved_total,
+    ragpipe_embed_cache_hits_total,
+    ragpipe_embed_cache_misses_total,
+    ragpipe_invalid_citations_total,
+    ragpipe_queries_total,
+    ragpipe_query_latency_seconds,
+    ragpipe_startup_ready_timestamp,
 )
 from ragpipe.models import Embedder
 from ragpipe.reranker import rerank
@@ -91,6 +102,7 @@ _routes_lock = asyncio.Lock()
 
 # Embedding cache — avoids re-encoding repeated queries
 EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", "256"))
+
 
 # Qdrant result cache — skips the HTTP round-trip for repeated queries
 QDRANT_CACHE_SIZE = int(os.environ.get("QDRANT_CACHE_SIZE", "512"))
@@ -257,6 +269,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     _ready = True
 
+    ragpipe_startup_ready_timestamp.set(time.time())
+
     yield
 
     # Shutdown
@@ -282,15 +296,32 @@ app = FastAPI(lifespan=lifespan)
 # ── Retrieval pipeline ───────────────────────────────────────────────────────
 
 
-@functools.lru_cache(maxsize=EMBED_CACHE_SIZE)
+# Embed cache — OrderedDict-based LRU with hit/miss tracking for Prometheus.
+_embed_cache: collections.OrderedDict[str, tuple] = collections.OrderedDict()
+_embed_cache_lock = threading.Lock()
+
+
 def _embed_query(query: str) -> tuple:
     """Embed a query string, caching the result. Returns tuple for hashability.
 
-    The key is normalized (strip + lower) so trivial whitespace/case
-    differences don't waste cache slots or re-compute embeddings.
+    Thread-safe LRU cache that tracks hit/miss counts for Prometheus metrics.
     """
+    with _embed_cache_lock:
+        if query in _embed_cache:
+            _embed_cache.move_to_end(query)
+            ragpipe_embed_cache_hits_total.inc()
+            return _embed_cache[query]
+        ragpipe_embed_cache_misses_total.inc()
+
     vec = embedder.embed_one(query)
-    return tuple(vec.tolist())
+    result = tuple(vec.tolist())
+
+    with _embed_cache_lock:
+        _embed_cache[query] = result
+        _embed_cache.move_to_end(query)
+        while len(_embed_cache) > EMBED_CACHE_SIZE:
+            _embed_cache.popitem(last=False)
+    return result
 
 
 def _embed_query_normalized(query: str) -> tuple:
@@ -597,6 +628,7 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         citation_status = "stripped"
         # Log each invalid citation as an error with the query hash
         q_hash = query_hash(user_query)
+        seen_types: set[str] = set()
         for err in validation_errors:
             log.error(
                 "Invalid citation: query_hash=%s doc_id=%s chunk_id=%d reason=%s",
@@ -605,6 +637,9 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
                 err["chunk_id"],
                 err["reason"],
             )
+            if err["reason"] not in seen_types:
+                ragpipe_invalid_citations_total.labels(type=err["reason"]).inc()
+                seen_types.add(err["reason"])
         # Strip invalid citations from the response — preserve the rest
         content = strip_invalid_citations(content, validation_errors)
         response_data["choices"][0]["message"]["content"] = content
@@ -666,6 +701,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
     elif validation_errors:
         citation_status = "invalid"
         q_hash = query_hash(user_query)
+        seen_types: set[str] = set()
         for err in validation_errors:
             log.error(
                 "Invalid citation (streamed): query_hash=%s doc_id=%s chunk_id=%d reason=%s",
@@ -674,6 +710,9 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
                 err["chunk_id"],
                 err["reason"],
             )
+            if err["reason"] not in seen_types:
+                ragpipe_invalid_citations_total.labels(type=err["reason"]).inc()
+                seen_types.add(err["reason"])
     else:
         citation_status = "pass"
 
@@ -697,6 +736,22 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
     )
 
     return metadata
+
+
+def _record_query_metrics(
+    latency: float,
+    metadata: dict,
+    retrieval_ctx: dict,
+) -> None:
+    """Record query metrics to Prometheus. Called after both streaming and non-streaming."""
+    route = retrieval_ctx.get("route_name", "default") or "default"
+    grounding = metadata.get("grounding", "unknown")
+    ranked = retrieval_ctx.get("ranked", [])
+    ragpipe_queries_total.labels(grounding=grounding, route=route).inc()
+    ragpipe_query_latency_seconds.labels(route=route).observe(latency)
+    if ranked:
+        ragpipe_chunks_retrieved_total.labels(route=route).inc(len(ranked))
+        ragpipe_chunks_passed_reranker_total.labels(route=route).inc(len(ranked))
 
 
 def _format_perf_summary(timings: dict | None, usage: dict | None, ctx: dict) -> str:
@@ -730,6 +785,8 @@ async def chat_completions(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    request_start = time.monotonic()
 
     # Route selection — when a router is configured, classify the query
     # and select a per-route pipeline. Otherwise use module-level globals.
@@ -842,6 +899,9 @@ async def chat_completions(request: Request):
                     )
                     _background_tasks.add(task)
                     task.add_done_callback(lambda t: _background_tasks.discard(t))
+                    # Record Prometheus metrics after streaming completes
+                    elapsed = time.monotonic() - request_start
+                    _record_query_metrics(elapsed, metadata, retrieval_ctx)
 
         return StreamingResponse(
             validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
@@ -879,6 +939,9 @@ async def chat_completions(request: Request):
             )
             _background_tasks.add(task)
             task.add_done_callback(lambda t: _background_tasks.discard(t))
+            # Record Prometheus metrics after non-streaming response
+            elapsed = time.monotonic() - request_start
+            _record_query_metrics(elapsed, metadata, retrieval_ctx)
         return JSONResponse(content=response_data)
 
 
@@ -887,6 +950,12 @@ async def health():
     if not _ready:
         return JSONResponse({"status": "starting"}, status_code=503)
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus-compatible metrics endpoint. No auth required — Prometheus scrapes this."""
+    return PlainTextResponse(get_metrics(), media_type="text/plain; charset=utf-8")
 
 
 @app.api_route("/v1/embeddings", methods=["POST"])
