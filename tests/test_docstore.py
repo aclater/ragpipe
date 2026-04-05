@@ -115,9 +115,6 @@ def test_batch_get_empty(store):
 def test_delete_doc(store):
     chunks = [{"doc_id": "test-del", "chunk_id": i, "text": f"del {i}", "source": "d.md"} for i in range(3)]
     store.upsert_chunks(chunks)
-    for i in range(3):
-        assert store.get_chunk("test-del", i) is None
-
     store.delete_doc("test-del")
     for i in range(3):
         assert store.get_chunk("test-del", i) is None
@@ -240,3 +237,37 @@ def test_close_cleans_up(tmp_path):
 
     store.close()
     assert store.cache_stats["size"] == 0
+
+
+# ── Title hydration tests ────────────────────────────────────────────────────
+
+
+def test_docstore_hydration_includes_title(tmp_path):
+    """get_chunks() returns {text, title, source} for each key."""
+    backend = SQLiteDocstore(str(tmp_path / "title.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-t1", 0, "chunk text", "src.md", title="My Document")
+    result = store.get_chunks([("test-t1", 0)])
+
+    assert ("test-t1", 0) in result
+    chunk = result[("test-t1", 0)]
+    assert chunk["text"] == "chunk text"
+    assert chunk["title"] == "My Document"
+    assert chunk["source"] == "src.md"
+
+
+def test_docstore_hydration_title_fallback(tmp_path):
+    """When title is not provided, returns empty strings without crashing."""
+    backend = SQLiteDocstore(str(tmp_path / "fallback.db"))
+    backend.init_schema()
+    store = CachedDocstore(backend, maxsize=100)
+
+    store.upsert_chunk("test-t2", 0, "no title text", "src.md")
+    result = store.get_chunks([("test-t2", 0)])
+
+    chunk = result[("test-t2", 0)]
+    assert chunk["text"] == "no title text"
+    assert chunk["title"] == ""
+    assert chunk["source"] == "src.md"

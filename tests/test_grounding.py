@@ -374,3 +374,106 @@ def test_reload_returns_hash(monkeypatch):
     mod = _reload()
     result = mod.reload_system_prompt()
     assert result["hash"] == hashlib.sha256(b"Hash me").hexdigest()
+
+
+# ── Title in context injection ───────────────────────────────────────────────
+
+
+def test_context_injection_includes_title():
+    mod = _reload()
+    chunks = [
+        {"doc_id": "abc-123", "chunk_id": 0, "source": "test.md", "title": "My Doc", "text": "hello"},
+    ]
+    ctx = mod.format_context(chunks)
+    assert '(from: "My Doc")' in ctx
+    assert "[abc-123:0]" in ctx
+
+
+def test_context_injection_omits_empty_title():
+    mod = _reload()
+    chunks = [
+        {"doc_id": "abc-123", "chunk_id": 0, "source": "test.md", "title": "", "text": "hello"},
+    ]
+    ctx = mod.format_context(chunks)
+    assert "(from:" not in ctx
+    assert "[abc-123:0]" in ctx
+
+
+# ── Title in rag_metadata ────────────────────────────────────────────────────
+
+
+def test_rag_metadata_includes_title():
+    mod = _reload()
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {
+        ("a", 0): {"text": "t0", "title": "Doc A", "source": "gdrive://a.pdf"},
+    }
+    meta = mod.build_metadata("Answer [a:0]", [("a", 0)], "full", docstore=mock_ds)
+    assert len(meta["cited_chunks"]) == 1
+    assert meta["cited_chunks"][0] == {"id": "a:0", "title": "Doc A", "source": "gdrive://a.pdf"}
+
+
+def test_rag_metadata_empty_title():
+    mod = _reload()
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {
+        ("a", 0): {"text": "t0", "title": "", "source": ""},
+    }
+    meta = mod.build_metadata("Answer [a:0]", [("a", 0)], "full", docstore=mock_ds)
+    assert meta["cited_chunks"][0]["title"] == ""
+    assert meta["cited_chunks"][0]["source"] == ""
+    assert "title" in meta["cited_chunks"][0]
+    assert "source" in meta["cited_chunks"][0]
+
+
+# ── Streaming audit includes title ───────────────────────────────────────────
+
+
+def test_streaming_audit_includes_title(caplog):
+    mod = _reload()
+    import logging
+
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {
+        ("d1", 0): {"text": "t0", "title": "Streamed Doc", "source": "gdrive://s.pdf"},
+    }
+
+    with caplog.at_level(logging.INFO, logger="ragpipe.audit"):
+        mod.log_audit(
+            q_hash="stream-hash",
+            ranked_chunks=[{"doc_id": "d1", "chunk_id": 0, "reranker_score": 0.9}],
+            corpus_coverage="full",
+            grounding="corpus",
+            valid_citations=[("d1", 0)],
+            citation_validation="pass",
+            cited_chunk_titles={("d1", 0): {"text": "t0", "title": "Streamed Doc", "source": "gdrive://s.pdf"}},
+        )
+
+    entry = json.loads(caplog.records[-1].getMessage())
+    assert entry["cited_chunks"][0]["title"] == "Streamed Doc"
+    assert entry["cited_chunks"][0]["source"] == "gdrive://s.pdf"
+
+
+# ── Audit log includes title field ───────────────────────────────────────────
+
+
+def test_query_log_writes_titles(caplog):
+    mod = _reload()
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="ragpipe.audit"):
+        mod.log_audit(
+            q_hash="abc123",
+            ranked_chunks=[{"doc_id": "d1", "chunk_id": 0, "reranker_score": 0.95}],
+            corpus_coverage="full",
+            grounding="corpus",
+            valid_citations=[("d1", 0)],
+            citation_validation="pass",
+            cited_chunk_titles={("d1", 0): {"text": "text", "title": "Titled Doc", "source": "gdrive://f.pdf"}},
+        )
+
+    entry = json.loads(caplog.records[-1].getMessage())
+    assert entry["cited_chunks"][0]["title"] == "Titled Doc"
+    assert entry["cited_chunks"][0]["source"] == "gdrive://f.pdf"
+    assert entry["cited_chunks"][0]["doc_id"] == "d1"
+    assert entry["cited_chunks"][0]["chunk_id"] == 0
