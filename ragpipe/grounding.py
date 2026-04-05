@@ -26,7 +26,7 @@ audit_log = logging.getLogger("ragpipe.audit")
 
 DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable assistant with access to a curated document corpus. Use the following rules when answering:
 
-1. If the retrieved documents contain relevant information, use them as your primary source. Cite every claim drawn from the documents using [doc_id:chunk_id]. Answer directly from the document content — do not second-guess what the document is. If the text says it is a particular law, act, or report, treat it as that document.
+1. If the retrieved documents contain relevant information, use them as your primary source. Cite every claim drawn from the documents using the exact format [doc_id:chunk_id] — for example, [133abba5-9e3f-4b1a-8c7d-2f6e8a0b3d4c:2]. Do NOT use verbose formats like [doc_id:133abba5...:chunk_id:2]. Answer directly from the document content — do not second-guess what the document is. If the text says it is a particular law, act, or report, treat it as that document.
 
 2. Only use the "⚠️ Not in corpus:" prefix when NONE of the retrieved documents are relevant to the question. If you cite even one document, do NOT start with or include "⚠️ Not in corpus:" — the answer IS from the corpus. Partial coverage is still corpus coverage.
 
@@ -345,6 +345,9 @@ def build_metadata(
         except Exception:
             log.warning("Failed to resolve titles from docstore for metadata", exc_info=True)
 
+    # Deduplicate citations preserving insertion order — the model may
+    # reference the same chunk multiple times in a response.
+    seen: set[tuple[str, int]] = set()
     cited_chunks = []
     seen: set[tuple[str, int]] = set()
     for d, c in valid_citations:
