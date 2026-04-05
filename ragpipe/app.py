@@ -979,9 +979,10 @@ async def reload_routes(request: Request):
         from ragpipe.router import SemanticRouter, load_routes_config
 
         configs, threshold, fallback = load_routes_config(ROUTES_FILE)
-    except Exception as e:
+    except Exception:
+        log.exception("Failed to parse routes file: %s", ROUTES_FILE)
         return JSONResponse(
-            {"error": f"Failed to parse routes file: {e}"},
+            {"error": "Failed to parse routes file — check server logs"},
             status_code=400,
         )
 
