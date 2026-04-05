@@ -63,3 +63,23 @@ routes:
       - "How does TCP/IP work?"
     model_url: http://host-b.example.local:8080
     rag_enabled: false
+
+  # Legal / patent queries — route to SaulLM-7B on lennon with USPTO/MPEP collection
+  legal:
+    examples:
+      - "What does the MPEP say about patentability?"
+      - "Find the patent examination guidelines for obviousness"
+      - "What are the requirements for a valid patent claim?"
+      - "Explain the patent prior art requirements"
+      - "What is the statute of limitations for patent infringement?"
+      - "How do I file a provisional patent application?"
+      - "What constitutes patentable subject matter?"
+      - "Describe the patent examination process"
+      - "What are the differences between design and utility patents?"
+      - "Find the relevant patent law provisions for this invention"
+    model_url: http://lennon:8080
+    qdrant_url: http://host.containers.internal:6333
+    qdrant_collection: mpep
+    docstore_url: postgresql://user:pass@host.containers.internal:5432/ragpipe
+    reranker_top_n: 5
+    top_k: 20
