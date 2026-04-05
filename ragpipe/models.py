@@ -113,12 +113,33 @@ def _ensure_model(repo_id: str, filenames: list[str]) -> Path:
         return model_dir
 
     model_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check if SSL verification should be disabled (for self-signed certs in test/dev)
+    disable_ssl = os.environ.get("HF_HUB_DISABLE_SSL_VERIFY", "").lower() in ("1", "true")
+
     for filename in filenames:
         dest = model_dir / filename
         if not dest.exists():
             log.info("Downloading %s/%s", repo_id, filename)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            downloaded = hf_hub_download(repo_id=repo_id, filename=filename)
+
+            # Temporarily disable SSL verification if requested
+            if disable_ssl:
+                import ssl
+                import urllib.request
+
+                # Save original SSL context
+                original_context = ssl._create_default_https_context
+                try:
+                    # Disable SSL verification
+                    ssl._create_default_https_context = ssl._create_unverified_context
+                    downloaded = hf_hub_download(repo_id=repo_id, filename=filename)
+                finally:
+                    # Restore original context
+                    ssl._create_default_https_context = original_context
+            else:
+                downloaded = hf_hub_download(repo_id=repo_id, filename=filename)
+
             # hf_hub_download returns a cache path; symlink to our dir
             if not dest.exists():
                 os.symlink(downloaded, dest)
