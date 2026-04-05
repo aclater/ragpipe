@@ -46,7 +46,7 @@ def test_parse_citations_roundtrip(text: str) -> None:
     expected = re.findall(r"\[([a-fA-F0-9-]+):(\d+)\]", text)
     actual = parse_citations(text)
     assert len(actual) == len(expected)
-    for (exp_doc, exp_chunk), (act_doc, act_chunk) in zip(expected, actual):
+    for (exp_doc, exp_chunk), (act_doc, act_chunk) in zip(expected, actual, strict=True):
         assert exp_doc == act_doc
         assert int(exp_chunk) == act_chunk
 
