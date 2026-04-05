@@ -32,7 +32,7 @@ jobs:
             file: Containerfile.rocm
             suffix: "-rocm"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
