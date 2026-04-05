@@ -53,14 +53,16 @@ def _load_system_prompt() -> str:
 
 SYSTEM_PROMPT = _load_system_prompt()
 SYSTEM_PROMPT_HASH = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()
+SYSTEM_PROMPT_LOADED_AT = datetime.now(UTC).isoformat()
 
 
 def reload_system_prompt() -> dict:
     """Reload the system prompt from file/env/default. Returns status dict."""
-    global SYSTEM_PROMPT, SYSTEM_PROMPT_HASH
+    global SYSTEM_PROMPT, SYSTEM_PROMPT_HASH, SYSTEM_PROMPT_LOADED_AT
     old_hash = SYSTEM_PROMPT_HASH
     SYSTEM_PROMPT = _load_system_prompt()
     SYSTEM_PROMPT_HASH = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()
+    SYSTEM_PROMPT_LOADED_AT = datetime.now(UTC).isoformat()
 
     path = os.environ.get("RAGPIPE_SYSTEM_PROMPT_FILE")
     if path:
