@@ -61,6 +61,13 @@ def test_system_prompt_contains_not_in_corpus_marker():
     assert "⚠️ Not in corpus:" in mod.DEFAULT_SYSTEM_PROMPT
 
 
+def test_system_prompt_contains_concrete_citation_example():
+    """System prompt must include a concrete citation example to prevent verbose format."""
+    mod = _reload()
+    assert "[133abba5-9e3f-4b1a-8c7d-2f6e8a0b3d4c:2]" in mod.DEFAULT_SYSTEM_PROMPT
+    assert "Do NOT use verbose formats" in mod.DEFAULT_SYSTEM_PROMPT
+
+
 # ── Context formatting ───────────────────────────────────────────────────────
 
 
@@ -119,6 +126,23 @@ def test_parse_citations_ignores_malformed():
     cites = mod.parse_citations(text)
     assert len(cites) == 1
     assert cites[0] == ("abc-123", 5)
+
+
+def test_parse_citations_rejects_verbose_format():
+    """Verbose format [doc_id:...:chunk_id:N] must not match — only [hash:N] is valid."""
+    mod = _reload()
+    verbose = "[doc_id:133abba5-9e3f-4b1a-8c7d-2f6e8a0b3d4c:chunk_id:2]"
+    cites = mod.parse_citations(verbose)
+    assert cites == [], f"Verbose citation should be rejected, got {cites}"
+
+
+def test_parse_citations_accepts_correct_format_alongside_verbose():
+    """Correct [hash:N] citations must still parse when verbose ones are also present."""
+    mod = _reload()
+    text = "See [doc_id:133abba5:chunk_id:2] for details. Also [133abba5-9e3f-4b1a-8c7d-2f6e8a0b3d4c:2] confirms this."
+    cites = mod.parse_citations(text)
+    assert len(cites) == 1
+    assert cites[0] == ("133abba5-9e3f-4b1a-8c7d-2f6e8a0b3d4c", 2)
 
 
 # ── Citation validation ──────────────────────────────────────────────────────
