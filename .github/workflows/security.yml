@@ -41,13 +41,13 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.35.0
-        continue-on-error: true
+        continue-on-error: true  # Non-blocking — findings reported via Security tab
         with:
           image-ref: ragpipe:${{ matrix.variant }}
           format: sarif
           output: trivy-results-${{ matrix.variant }}.sarif
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
 
       - name: Upload Trivy scan results to GitHub Security tab
