@@ -15,8 +15,8 @@ jobs:
     name: pip-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install --quiet .
@@ -33,7 +33,7 @@ jobs:
           - variant: rocm
             file: Containerfile.rocm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build container image
         run: docker build -t ragpipe:${{ matrix.variant }} -f ${{ matrix.file }} .
@@ -62,7 +62,7 @@ jobs:
       matrix:
         language: ["python"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
