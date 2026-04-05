@@ -68,6 +68,19 @@ def test_system_prompt_contains_concrete_citation_example():
     assert "Do NOT use verbose formats" in mod.DEFAULT_SYSTEM_PROMPT
 
 
+def test_system_prompt_contains_few_shot_example():
+    """System prompt must include a few-shot Q&A showing citation usage."""
+    mod = _reload()
+    assert "## Example" in mod.DEFAULT_SYSTEM_PROMPT
+    assert "Assistant:" in mod.DEFAULT_SYSTEM_PROMPT
+    # The example response must contain at least one citation in the expected format
+    from ragpipe.grounding import _CITATION_PATTERN
+
+    example_start = mod.DEFAULT_SYSTEM_PROMPT.index("## Example")
+    example_text = mod.DEFAULT_SYSTEM_PROMPT[example_start:]
+    assert _CITATION_PATTERN.search(example_text), "Few-shot example must contain valid [doc_id:chunk_id] citations"
+
+
 # ── Context formatting ───────────────────────────────────────────────────────
 
 
@@ -95,6 +108,24 @@ def test_build_system_message_with_context():
     assert "DOCUMENT CONTEXT" in msg
     assert "some context" in msg
     assert mod.SYSTEM_PROMPT in msg
+
+
+def test_build_system_message_has_citation_reminder_after_context():
+    """Citation format reminder must appear after the context block to reinforce
+    the instruction for models with limited attention over long contexts."""
+    mod = _reload()
+    msg = mod.build_system_message("some context")
+    end_ctx_pos = msg.index("--- END CONTEXT ---")
+    reminder_pos = msg.index("REMINDER:")
+    assert reminder_pos > end_ctx_pos, "Citation reminder must appear after END CONTEXT"
+    assert "[doc_id:chunk_id]" in msg[end_ctx_pos:]
+
+
+def test_build_system_message_no_reminder_without_context():
+    """When there's no context, there should be no citation reminder."""
+    mod = _reload()
+    msg = mod.build_system_message("")
+    assert "REMINDER:" not in msg
 
 
 def test_build_system_message_empty_retrieval():
