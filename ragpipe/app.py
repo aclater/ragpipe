@@ -526,6 +526,14 @@ def process_response(response_data: dict, ctx: dict) -> dict:
     # Build metadata — populated by parsing, not by the LLM
     metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
 
+    # Resolve titles for audit log
+    cited_chunk_titles = {}
+    if effective_ds and valid_citations:
+        try:
+            cited_chunk_titles = effective_ds.get_chunks(valid_citations)
+        except Exception:
+            pass
+
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
 
@@ -537,6 +545,7 @@ def process_response(response_data: dict, ctx: dict) -> dict:
         grounding=metadata["grounding"],
         valid_citations=valid_citations,
         citation_validation=citation_status,
+        cited_chunk_titles=cited_chunk_titles,
     )
 
     return response_data
@@ -580,6 +589,13 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
 
     metadata = build_metadata(content, valid_citations, corpus_coverage, docstore=effective_ds)
 
+    cited_chunk_titles = {}
+    if effective_ds and valid_citations:
+        try:
+            cited_chunk_titles = effective_ds.get_chunks(valid_citations)
+        except Exception:
+            pass
+
     log_audit(
         q_hash=query_hash(user_query),
         ranked_chunks=ranked,
@@ -587,6 +603,7 @@ def _validate_streamed_response(content: str, ctx: dict) -> None:
         grounding=metadata["grounding"],
         valid_citations=valid_citations,
         citation_validation=citation_status,
+        cited_chunk_titles=cited_chunk_titles,
     )
 
 

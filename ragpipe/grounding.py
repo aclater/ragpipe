@@ -379,6 +379,7 @@ def log_audit(
     *,
     route_name: str | None = None,
     route_score: float | None = None,
+    cited_chunk_titles: dict[tuple[str, int], dict] | None = None,
 ) -> None:
     """Write a structured audit log entry.
 
@@ -396,7 +397,15 @@ def log_audit(
         "chunks_passed_threshold": len(ranked_chunks),
         "grounding": grounding,
         "corpus_coverage": corpus_coverage,
-        "cited_chunks": [{"doc_id": d, "chunk_id": c} for d, c in valid_citations],
+        "cited_chunks": [
+            {
+                "doc_id": d,
+                "chunk_id": c,
+                "title": cited_chunk_titles.get((d, c), {}).get("title", "") if cited_chunk_titles else "",
+                "source": cited_chunk_titles.get((d, c), {}).get("source", "") if cited_chunk_titles else "",
+            }
+            for d, c in valid_citations
+        ],
         "citation_validation": citation_validation,
         "response_type": "answered",
     }
