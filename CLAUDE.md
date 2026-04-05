@@ -10,7 +10,8 @@ POST /v1/chat/completions
   → embed query (ONNX Runtime, gte-modernbert-base, LRU cached)
   → search route's Qdrant (top-K vectors, reference payloads only)
   → hydrate chunk text from Postgres docstore (asyncpg pool, LRU cached)
-  → rerank with cross-encoder (ONNX Runtime, MiniLM-L-6-v2)
+    → titles extracted per source type, surfaced in rag_metadata.cited_chunks[].title
+  → rerank with cross-encoder (ONNX Runtime, MiniLM-L-6-v2, CPU-only on gfx1151)
   → filter chunks below RERANKER_MIN_SCORE (-5 default)
   → inject system prompt + context with [doc_id:chunk_id] labels
   → forward to LLM via persistent httpx client (stream or non-stream)
@@ -41,6 +42,11 @@ tests/
   test_models.py     — 7 tests (embedder + reranker ONNX wrappers)
 examples/
   routes-multi-host.yaml — cross-host routing config example
+docs/
+  configuration.md  — full environment variable reference
+  api.md           — endpoints, rag_metadata, streaming behavior
+  routing.md       — semantic routing configuration and debugging
+  architecture.md  — performance benchmarks and pipeline details
 ```
 
 ## Key design decisions
@@ -52,19 +58,21 @@ examples/
 - Reranker min score threshold (-5) — filters irrelevant chunks, saves prompt tokens on adversarial queries
 - Qdrant stores vectors + reference payloads only — no text
 - Full chunk text lives in Postgres (or SQLite for dev)
+- Titles stored alongside chunks in Postgres, surfaced in rag_metadata.cited_chunks[].title
 - Citations are parsed and validated by code, not by the LLM
 - Audit log captures grounding decisions without logging text content
 - System prompt hot-reloadable via POST /admin/reload-prompt (secured with RAGPIPE_ADMIN_TOKEN)
+- Routes hot-reloadable via POST /admin/reload-routes (no restart needed)
 - Hydration runs as native async (no thread pool hop), embedding/reranking in thread pool
 - ONNX Runtime threads capped at 4, CPU memory arenas disabled
 - Models downloaded from HuggingFace Hub, cached in RAGPIPE_MODEL_CACHE
 - Default embedding model (Alibaba-NLP/gte-modernbert-base) is quantized ONNX, 768d, CLS pooling
 
-## MIGraphX — AMD GPU inference
+## MIGraphX — AMD GPU inference (gfx1151 only)
 
 MIGraphXExecutionProvider is the correct and intended AMD GPU execution
 provider for ONNX Runtime on this system. ROCMExecutionProvider is
-ABI-incompatible with ROCm 7.2 (`onnxruntime-rocm` 1.22.2 links against
+ABI-incompatible with ROCm 7.x (`onnxruntime-rocm` links against
 ROCm 6.x `.so` versions — `libhipblas.so.2` vs `.so.3`,
 `libamdhip64.so.6` vs `.so.7`). It silently falls back to CPU.
 
@@ -73,6 +81,9 @@ must be padded to a fixed batch size (`MIGRAPHX_BATCH_SIZE=64`) before
 inference and sliced after. The startup warmup must use exactly 64 inputs
 so the compiled graph matches production traffic — one compile, cached
 forever.
+
+**⚠️ Startup time: ~3 minutes on gfx1151.** Do not restart ragpipe in
+production unless critical.
 
 `RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE`. An assertion at startup
 enforces this. Do not remove it.
@@ -88,7 +99,30 @@ Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
 errors against ROCm 7.x and is no longer maintained by AMD. The only
 alternative is CPUExecutionProvider, which works but is significantly slower.
 
+## Multi-collection routing
+
+Routes file (`RAGPIPE_ROUTES_FILE`) configures semantic routing to multiple
+Qdrant collections. Each route has its own collection, LLM, docstore, and
+system prompt. Live collections: `personnel`, `nato`, `mpep`, `documents`.
+
+Routes can be reloaded without restart:
+```bash
+curl -X POST http://localhost:8090/admin/reload-routes \
+  -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN"
+```
+
+## rag_metadata schema (v3)
+
+`cited_chunks` is a list of objects with `id`, `title`, and `source`:
+```python
+cited_chunks = [
+    {"id": "abc-123:0", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"},
+    {"id": "abc-123:1", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"}
+]
+```
+
 ## Known issues
+- ⚠️ MIGraphX startup takes ~3 minutes on first query — plan restarts accordingly
 - Streaming responses are audited post-hoc (dual-path accumulation) but invalid citations cannot be stripped in-flight — logged as errors instead
 - LLM phrasing variance: negative finding classifier depends on recognizable negation patterns before the ⚠️ marker — when the model phrases differently, classification may vary between runs
 - /v1/models passthrough returns global upstream's model list, not routed model's
@@ -120,87 +154,6 @@ Two variants are published, both UBI9 Python 3.11, models pre-downloaded, non-ro
 | Variant | Tag | Containerfile | ONNX Runtime package | Base | GPU support |
 |---------|-----|---------------|---------------------|------|-------------|
 | CPU | `ghcr.io/aclater/ragpipe:main` | `Containerfile` | `onnxruntime` | UBI9 Python 3.11 | None (CPU only) |
-| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-migraphx` 1.24.2 (from AMD repo) | rocm/dev-ubuntu-24.04:7.2.1 | MIGraphXExecutionProvider |
-
-```bash
-# CPU variant
-podman build -t ragpipe -f Containerfile .
-
-# ROCm variant (AMD GPU)
-podman build -t ragpipe-rocm -f Containerfile.rocm .
-```
+| ROCm | `ghcr.io/aclater/ragpipe:main-rocm` | `Containerfile.rocm` | `onnxruntime-migraphx` (from AMD repo) | rocm/dev-ubuntu-24.04:7.2.1 | MIGraphXExecutionProvider |
 
 The ROCm quadlet requires `/dev/kfd` + `/dev/dri` passthrough, `HSA_OVERRIDE_GFX_VERSION=11.5.1`, `SecurityLabelDisable=true` for SELinux `/dev/kfd` access, and `--ipc=host` for MIGraphX shared memory.
-
-
-## GPU acceleration
-
-- This system may have an AMD, NVIDIA, or Intel GPU. All services and scripts must detect the available GPU at runtime and select the appropriate acceleration stack — do not hardcode a vendor.
-- Detection priority: NVIDIA CUDA > AMD ROCm > Intel XPU/OpenVINO > CPU. Fall back to CPU only when no GPU is available, and log a clear warning when doing so.
-- Never default to CPU for any workload that can run on GPU. CPU fallback is acceptable only when a specific library or operation has no GPU support, and must be explicitly noted in a comment explaining why.
-- For Python workloads: use torch.cuda.is_available(), torch.version.hip (ROCm), or torch.xpu.is_available() (Intel) to detect and select the correct device at runtime. Do not hardcode "cuda", "rocm", or "cpu".
-- For ONNX Runtime: select ExecutionProvider based on runtime detection — CUDAExecutionProvider, ROCMExecutionProvider, OpenVINOExecutionProvider, or CPUExecutionProvider — in that priority order.
-- For container workloads:
-  - NVIDIA: pass --device /dev/nvidia0 (or --gpus all with nvidia-container-toolkit)
-  - AMD ROCm: pass --device /dev/kfd --device /dev/dri
-  - Intel: pass --device /dev/dri
-  - Document any container that cannot use GPU and why.
-- AMD ROCm on gfx1151: HSA_OVERRIDE_GFX_VERSION=11.5.1 is required. Set this env var in any quadlet, container, or script that uses ROCm on this hardware.
-- Do not recommend or implement CPU-only solutions without first investigating whether a GPU-accelerated alternative exists for all three vendors.
-- When benchmarking or profiling, always compare GPU vs CPU and report both. Never present CPU-only results as the baseline.
-- When writing GPU detection code, always write it once as a shared utility function — do not duplicate vendor detection logic across files.
-
-
-## Always verify current versions before using them
-
-This is a hard requirement, not a suggestion. Using stale version numbers
-wastes time, breaks builds, and has caused real incidents on this stack.
-
-- BEFORE referencing any version number — for a container image, Python
-  package, ROCm release, CUDA toolkit, npm package, system package, LLM
-  model, or any other software — look it up. Do not use version numbers
-  from training knowledge. They are outdated.
-- For container images: check the registry (quay.io, ghcr.io,
-  registry.access.redhat.com, docker.io) for the current stable tag
-  before writing it. Verify the tag exists. Never use :latest in
-  production quadlets.
-- For Python packages: check PyPI for the current stable release
-  before pinning.
-- For ROCm: check https://rocm.docs.amd.com and
-  https://github.com/RadeonOpenCompute/ROCm/releases for the current
-  stable release. ROCm versions change frequently and using an old
-  version is a primary cause of GPU acceleration failures on this stack.
-- For CUDA: check https://developer.nvidia.com/cuda-downloads for the
-  current stable release.
-- For npm packages: check https://www.npmjs.com or run
-  npm show <package> version.
-- For LLM models: check Hugging Face and the model provider directly
-  for current releases.
-- For system packages (dnf/rpm/apt): do not pin versions unless
-  explicitly asked — let the package manager resolve current stable.
-- If you cannot verify a version, say so explicitly and ask.
-  Do not guess. Do not use what you think the version is.
-
-
-## Repository location
-
-All code, projects, and repositories live exclusively under ~/git/.
-
-- Never clone, create, or initialize a repository anywhere else on this
-  system — not in ~/, not in /tmp, not in ~/Documents, or any other path.
-- Before cloning or creating any repo, verify the target path is under
-  ~/git/. If it is not, stop and correct the path.
-- If you find a repository outside ~/git/, do not work in it. Move it
-  to ~/git/ first, update any remotes if needed, and confirm the old
-  location is removed before proceeding.
-- When referencing local repos, always use ~/git/<reponame> as the path.
-
-
-## User scripts and tools
-
-User scripts and tools live in ~/.local/bin/, not ~/bin/.
-
-- Always install scripts to ~/.local/bin/
-- When referencing or running user scripts, always use ~/.local/bin/<script>
-- Never create or reference scripts in ~/bin/ — that path is not used on
-  this system
