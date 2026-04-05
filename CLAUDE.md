@@ -77,6 +77,13 @@ forever.
 `RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE`. An assertion at startup
 enforces this. Do not remove it.
 
+**Exception: the reranker runs on CPU.** MIGraphX compiles the MiniLM-L-6
+reranker graph on gfx1151 but fails at inference with "Not computable:
+gpu::precompile_op". The reranker is forced to `CPUExecutionProvider` in
+`models.py:Reranker.load()`. Do not change this without verifying the
+MIGraphX runtime error is resolved upstream. The reranker is small (87 MB)
+and fast enough on CPU (~10ms for 40 candidates).
+
 Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
 errors against ROCm 7.x and is no longer maintained by AMD. The only
 alternative is CPUExecutionProvider, which works but is significantly slower.

@@ -232,9 +232,14 @@ class Reranker:
         self._input_names: set[str] | None = None
 
     def load(self) -> None:
-        """Download and load model + tokenizer."""
+        """Download and load model + tokenizer.
+
+        Always uses CPUExecutionProvider — MIGraphX compiles the MiniLM-L-6
+        graph on gfx1151 but fails at inference with "Not computable:
+        gpu::precompile_op". The reranker is small (87 MB) and fast on CPU.
+        """
         model_dir = _ensure_model(self.repo_id, [self._model_file, self._tokenizer_file])
-        providers = _get_providers()
+        providers = ["CPUExecutionProvider"]
         log.info("Loading reranker %s (ONNX, threads=%d, providers=%s)", self.repo_id, ONNX_THREADS, providers)
         self._session = ort.InferenceSession(
             str(model_dir / self._model_file),
@@ -242,37 +247,21 @@ class Reranker:
             providers=providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
-        # Fixed padding length — same reason as Embedder (MIGraphX recompilation)
+        # Fixed padding length for consistent sequence dimension
         self._pad_length = int(os.environ.get("ONNX_PAD_LENGTH", "128"))
         self._tokenizer.enable_padding(length=self._pad_length)
         self._tokenizer.enable_truncation(max_length=self._pad_length)
         self._input_names = {inp.name for inp in self._session.get_inputs()}
 
     def score(self, query: str, documents: list[str]) -> list[float]:
-        """Score (query, document) pairs. Returns list of relevance scores.
-
-        Inputs are padded to MIGRAPHX_BATCH_SIZE for stable MIGraphX
-        graph shape, same as Embedder. Batches larger than
-        MIGRAPHX_BATCH_SIZE are split into sub-batches.
-        """
+        """Score (query, document) pairs. Returns list of relevance scores."""
         if not documents:
             return []
         if self._session is None:
             self.load()
 
-        if len(documents) > MIGRAPHX_BATCH_SIZE:
-            scores = []
-            for i in range(0, len(documents), MIGRAPHX_BATCH_SIZE):
-                scores.extend(self.score(query, documents[i : i + MIGRAPHX_BATCH_SIZE]))
-            return scores
-
-        actual = len(documents)
-        pairs = [(query, doc) for doc in documents]
-        # Pad to fixed batch size for stable MIGraphX graph shape
-        if actual < MIGRAPHX_BATCH_SIZE:
-            pairs += [("", "")] * (MIGRAPHX_BATCH_SIZE - actual)
-
-        encoded = self._tokenizer.encode_batch(pairs)
+        # Tokenize as (query, document) pairs
+        encoded = self._tokenizer.encode_batch([(query, doc) for doc in documents])
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
 
@@ -282,4 +271,4 @@ class Reranker:
 
         outputs = self._session.run(None, onnx_input)
         # Cross-encoder output: logits column 0 is the relevance score
-        return [float(s) for s in outputs[0][:actual, 0]]
+        return [float(s) for s in outputs[0][:, 0]]

@@ -36,15 +36,13 @@ def _get_model():
 
 
 def warm_up():
-    """Load the model and trigger MIGraphX graph compilation.
+    """Load the reranker model eagerly at startup.
 
-    Runs a dummy score call with MIGRAPHX_BATCH_SIZE pairs so the
-    compiled graph matches production traffic — one compile at startup,
-    cached forever. The padding inside score() ensures the input
-    tensor shape is always (MIGRAPHX_BATCH_SIZE, pad_length).
+    The reranker runs on CPU (MIGraphX fails on MiniLM-L-6 with
+    gfx1151 — "Not computable: gpu::precompile_op"). CPU inference
+    needs no warmup compilation.
     """
-    model = _get_model()
-    model.score("warmup", ["warmup"])
+    _get_model()
 
 
 def rerank(
