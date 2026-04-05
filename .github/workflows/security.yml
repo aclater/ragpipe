@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   pip-audit:
@@ -20,3 +21,58 @@ jobs:
           python-version: "3.11"
       - run: pip install --quiet .
       - uses: pypa/gh-action-pip-audit@v1.1.0
+
+  trivy-container:
+    name: Trivy container scan (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - variant: cpu
+            file: Containerfile
+          - variant: rocm
+            file: Containerfile.rocm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build container image
+        run: docker build -t ragpipe:${{ matrix.variant }} -f ${{ matrix.file }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ragpipe:${{ matrix.variant }}
+          format: sarif
+          output: trivy-results-${{ matrix.variant }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results-${{ matrix.variant }}.sarif
+          category: trivy-${{ matrix.variant }}
+
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
