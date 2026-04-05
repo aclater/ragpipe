@@ -258,6 +258,12 @@ class Reranker:
         if self._session is None:
             self.load()
 
+        if len(documents) > ONNX_BATCH_SIZE:
+            scores = []
+            for i in range(0, len(documents), ONNX_BATCH_SIZE):
+                scores.extend(self.score(query, documents[i : i + ONNX_BATCH_SIZE]))
+            return scores
+
         actual = len(documents)
         pairs = [(query, doc) for doc in documents]
         # Pad to fixed batch size for stable MIGraphX graph shape
