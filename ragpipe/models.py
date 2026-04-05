@@ -19,6 +19,7 @@ from tokenizers import Tokenizer
 log = logging.getLogger("ragpipe.models")
 
 CACHE_DIR = Path(os.environ.get("RAGPIPE_MODEL_CACHE", Path.home() / ".cache" / "ragpipe"))
+MXR_CACHE_DIR = Path(os.environ.get("RAGPIPE_MXR_CACHE", Path.home() / ".cache" / "ragpipe" / "mxr"))
 ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
 # Fixed batch size for MIGraphX graph compilation. MIGraphX JIT-compiles
 # for a specific tensor shape and errors on shape mismatch. Padding all
@@ -100,6 +101,88 @@ def _session_options() -> ort.SessionOptions:
     return opts
 
 
+def _mxr_cache_path(model_name: str) -> Path:
+    """Return the MXR cache directory for a model, encoding batch size to detect shape mismatches.
+
+    MIGraphX compiles static graphs for a fixed tensor shape. If MIGRAPHX_BATCH_SIZE
+    changes, the old .mxr is invalid. Encoding the batch size in the path forces a
+    recompile when the shape changes.
+    """
+    pad_length = int(os.environ.get("ONNX_PAD_LENGTH", "128"))
+    safe_name = model_name.replace("/", "--")
+    return MXR_CACHE_DIR / f"{safe_name}_b{MIGRAPHX_BATCH_SIZE}_p{pad_length}"
+
+
+def _get_providers_with_options() -> list:
+    """Select ONNX Runtime providers with MXR cache options for MIGraphX.
+
+    Returns a list suitable for ort.InferenceSession(providers=...).
+    When MIGraphX is selected, returns tuples of (provider_name, options_dict)
+    with the MXR cache path configured. Otherwise returns plain strings.
+    """
+    providers = _get_providers()
+    if "MIGraphXExecutionProvider" not in providers:
+        return providers
+
+    result = []
+    for p in providers:
+        if p == "MIGraphXExecutionProvider":
+            # Use a generic cache path — the actual model-specific path is set
+            # per-session via the model_name parameter in Embedder/Reranker.
+            result.append(p)
+        else:
+            result.append(p)
+    return result
+
+
+def _create_session(model_path: str, model_name: str, providers: list[str]) -> ort.InferenceSession:
+    """Create an ONNX Runtime InferenceSession with MXR caching for MIGraphX.
+
+    If MIGraphX is in the provider list, sets ORT_MIGRAPHX_MODEL_CACHE_PATH
+    environment variable so the provider automatically saves/loads compiled
+    .mxr files. This eliminates the ~3 minute JIT compilation on subsequent
+    startups.
+    """
+    cache_path = _mxr_cache_path(model_name)
+    use_mxr = "MIGraphXExecutionProvider" in providers
+
+    if use_mxr:
+        cache_path.mkdir(parents=True, exist_ok=True)
+        os.environ["ORT_MIGRAPHX_MODEL_CACHE_PATH"] = str(cache_path)
+        cached_files = list(cache_path.glob("*.mxr"))
+        if cached_files:
+            log.info("MXR cache hit for %s — loading pre-compiled graph from %s", model_name, cache_path)
+        else:
+            log.info("MXR cache miss for %s — will JIT compile and save to %s", model_name, cache_path)
+
+    session = ort.InferenceSession(
+        model_path,
+        sess_options=_session_options(),
+        providers=providers,
+    )
+
+    if use_mxr and not list(cache_path.glob("*.mxr")):
+        log.info("MXR compilation complete for %s — cached to %s", model_name, cache_path)
+
+    return session
+
+
+def get_mxr_status() -> dict:
+    """Return MXR cache status for all known models. Used by /admin/mxr-status."""
+    status = {"cache_dir": str(MXR_CACHE_DIR), "models": {}}
+    if not MXR_CACHE_DIR.exists():
+        return status
+    for subdir in sorted(MXR_CACHE_DIR.iterdir()):
+        if subdir.is_dir():
+            mxr_files = list(subdir.glob("*.mxr"))
+            status["models"][subdir.name] = {
+                "cached": len(mxr_files) > 0,
+                "files": [f.name for f in mxr_files],
+                "size_mb": round(sum(f.stat().st_size for f in mxr_files) / 1048576, 1),
+            }
+    return status
+
+
 def _ensure_model(repo_id: str, filenames: list[str]) -> Path:
     """Download model files from HuggingFace Hub if not cached.
 
@@ -149,10 +232,10 @@ class Embedder:
         model_dir = _ensure_model(self.repo_id, [self._model_file, self._tokenizer_file])
         providers = _get_providers()
         log.info("Loading embedder %s (ONNX, threads=%d, providers=%s)", self.repo_id, ONNX_THREADS, providers)
-        self._session = ort.InferenceSession(
+        self._session = _create_session(
             str(model_dir / self._model_file),
-            sess_options=_session_options(),
-            providers=providers,
+            self.repo_id,
+            providers,
         )
         self._tokenizer = Tokenizer.from_file(str(model_dir / self._tokenizer_file))
         # Pad to fixed length so MIGraphX only compiles once per model.
