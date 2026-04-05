@@ -36,8 +36,13 @@ def _get_model():
 
 
 def warm_up():
-    """Load the model eagerly at startup instead of on first request."""
-    _get_model()
+    """Load the model and trigger MIGraphX graph compilation.
+
+    A dummy score call forces MIGraphX to JIT-compile for the padded
+    batch shape at startup, rather than on the first real request.
+    """
+    model = _get_model()
+    model.score("warmup query", ["warmup document"])
 
 
 def rerank(

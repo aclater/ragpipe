@@ -20,6 +20,12 @@ log = logging.getLogger("ragpipe.models")
 
 CACHE_DIR = Path(os.environ.get("RAGPIPE_MODEL_CACHE", Path.home() / ".cache" / "ragpipe"))
 ONNX_THREADS = int(os.environ.get("ONNX_THREADS", "4"))
+# Fixed batch size for MIGraphX graph compilation. MIGraphX JIT-compiles
+# for a specific tensor shape and errors on shape mismatch. Padding all
+# inputs to this batch size means the graph is compiled once at startup
+# and reused for every subsequent call. Must match or exceed the largest
+# batch size used by callers (ragstuffer defaults to 64).
+ONNX_BATCH_SIZE = int(os.environ.get("ONNX_BATCH_SIZE", "64"))
 
 # Map RAGPIPE_DEVICE env var values to ONNX Runtime provider names.
 # MIGraphX is the only AMD GPU provider in ORT 1.23+ (ROCMExecutionProvider removed).
@@ -158,11 +164,26 @@ class Embedder:
         self._input_names = {inp.name for inp in self._session.get_inputs()}
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed a batch of texts. Returns (batch_size, embedding_dim) float32 array."""
+        """Embed a batch of texts. Returns (batch_size, embedding_dim) float32 array.
+
+        Inputs are padded to ONNX_BATCH_SIZE so MIGraphX only compiles
+        one graph shape. Batches larger than ONNX_BATCH_SIZE are split
+        and processed in sub-batches.
+        """
         if self._session is None:
             self.load()
 
-        encoded = self._tokenizer.encode_batch(texts)
+        if len(texts) > ONNX_BATCH_SIZE:
+            parts = []
+            for i in range(0, len(texts), ONNX_BATCH_SIZE):
+                parts.append(self.embed(texts[i : i + ONNX_BATCH_SIZE]))
+            return np.concatenate(parts, axis=0)
+
+        actual = len(texts)
+        # Pad to fixed batch size for stable MIGraphX graph shape
+        padded_texts = texts + [""] * (ONNX_BATCH_SIZE - actual) if actual < ONNX_BATCH_SIZE else texts
+
+        encoded = self._tokenizer.encode_batch(padded_texts)
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
 
@@ -172,7 +193,7 @@ class Embedder:
 
         outputs = self._session.run(None, onnx_input)
         # CLS pooling: take the first token's hidden state
-        embeddings = outputs[0][:, 0]
+        embeddings = outputs[0][:actual, 0]
         # L2 normalize
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         norms = np.maximum(norms, 1e-12)
@@ -227,14 +248,23 @@ class Reranker:
         self._input_names = {inp.name for inp in self._session.get_inputs()}
 
     def score(self, query: str, documents: list[str]) -> list[float]:
-        """Score (query, document) pairs. Returns list of relevance scores."""
+        """Score (query, document) pairs. Returns list of relevance scores.
+
+        Inputs are padded to ONNX_BATCH_SIZE for stable MIGraphX graph
+        shape, same as Embedder.
+        """
         if not documents:
             return []
         if self._session is None:
             self.load()
 
-        # Tokenize as (query, document) pairs
-        encoded = self._tokenizer.encode_batch([(query, doc) for doc in documents])
+        actual = len(documents)
+        pairs = [(query, doc) for doc in documents]
+        # Pad to fixed batch size for stable MIGraphX graph shape
+        if actual < ONNX_BATCH_SIZE:
+            pairs += [("", "")] * (ONNX_BATCH_SIZE - actual)
+
+        encoded = self._tokenizer.encode_batch(pairs)
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
 
@@ -244,4 +274,4 @@ class Reranker:
 
         outputs = self._session.run(None, onnx_input)
         # Cross-encoder output: logits column 0 is the relevance score
-        return [float(s) for s in outputs[0][:, 0]]
+        return [float(s) for s in outputs[0][:actual, 0]]
