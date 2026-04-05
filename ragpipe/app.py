@@ -315,23 +315,27 @@ async def _hydrate(refs: list[dict], *, ds=None) -> list[dict]:
             log.warning("Docstore still unavailable — returning results without chunk text")
             return []
     lookup_keys = [(r["doc_id"], r["chunk_id"]) for r in refs]
-    texts = await effective_ds.get_chunks_async(lookup_keys)
+    chunks = await effective_ds.get_chunks_async(lookup_keys)
 
     hydrated = []
     for ref in refs:
         key = (ref["doc_id"], ref["chunk_id"])
-        text = texts.get(key)
-        if text is None:
+        chunk_data = chunks.get(key)
+        if chunk_data is None:
             log.warning(
                 "Orphaned vector: doc_id=%s chunk_id=%d — excluding from results",
                 ref["doc_id"],
                 ref["chunk_id"],
             )
             continue
+        text = chunk_data.get("text", "") if isinstance(chunk_data, dict) else (chunk_data or "")
+        title = chunk_data.get("title", "") if isinstance(chunk_data, dict) else ""
+        source = chunk_data.get("source", ref.get("source", "unknown")) if isinstance(chunk_data, dict) else ref.get("source", "unknown")
         hydrated.append(
             {
                 "text": text,
-                "source": ref.get("source", "unknown"),
+                "title": title,
+                "source": source,
                 "doc_id": ref["doc_id"],
                 "chunk_id": ref["chunk_id"],
             }
