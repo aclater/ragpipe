@@ -869,7 +869,7 @@ async def chat_completions(request: Request):
                         if text:
                             accumulated_content.append(text)
                     except json.JSONDecodeError:
-                        pass
+                        log.debug("Skipping non-JSON SSE line: %s", raw[:50])
                     yield raw + "\n\n"
 
         async def validate_after_stream(response: StreamingResponse) -> StreamingResponse:
