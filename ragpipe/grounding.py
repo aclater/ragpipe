@@ -357,7 +357,6 @@ def build_metadata(
     # reference the same chunk multiple times in a response.
     seen: set[tuple[str, int]] = set()
     cited_chunks = []
-    seen: set[tuple[str, int]] = set()
     for d, c in valid_citations:
         if (d, c) in seen:
             continue
