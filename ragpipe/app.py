@@ -544,7 +544,7 @@ async def _rewrite_query(query: str, *, pipeline=None) -> str:
         data = resp.json()
         rewritten = data["choices"][0]["message"].get("content", "").strip()
         if rewritten:
-            log.info("CRAG rewrite: '%s' → '%s'", query[:80], rewritten[:80])
+            log.info("CRAG rewrite: %s → %s", query_hash(query), rewritten[:80])
             return rewritten
     except Exception:
         log.warning("CRAG query rewrite failed — using original query", exc_info=True)

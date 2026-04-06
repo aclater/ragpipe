@@ -113,6 +113,10 @@ class PostgresDocstore(DocstoreBackend):
                     latency_ms INT,
                     model TEXT,
                     route TEXT,
+                    query_rewritten BOOLEAN DEFAULT FALSE,
+                    original_query TEXT,
+                    rewritten_query TEXT,
+                    retrieval_attempts INT DEFAULT 1,
                     created_at TIMESTAMP DEFAULT now()
                 )
             """)
