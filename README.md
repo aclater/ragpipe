@@ -129,19 +129,31 @@ All configuration is via environment variables.
 
 For the full reference covering routing configuration and debugging, see [docs/routing.md](docs/routing.md).
 
-## GPU acceleration (MIGraphX)
+## GPU acceleration (gfx1151: CPU; other AMD: MIGraphX)
 
-ragpipe supports AMD GPU inference via MIGraphXExecutionProvider. This is the **only** supported AMD GPU provider on this stack — ROCMExecutionProvider is ABI-incompatible with ROCm 7.x and silently falls back to CPU.
+**On gfx1151 (Strix Halo), both embedder and reranker use CPU.** MIGraphX is skipped automatically via `_is_gfx1151()` detection. This is because MIGraphX tensors land in GTT (system RAM) on UMA APUs, not VRAM — ROCm VMM is not supported on gfx1151 by design. Benchmarks confirm CPU outperforms MIGraphX-on-GTT for models this small.
 
-**⚠️ Startup time:** MIGraphX compiles static computation graphs at first use (JIT). The first query after startup takes ~3 minutes on gfx1151 while the graph is compiled. Subsequent queries are fast. Do not restart ragpipe in production unless necessary.
+**On other AMD GPUs**, MIGraphXExecutionProvider is used normally. ROCMExecutionProvider is ABI-incompatible with ROCm 7.x and silently falls back to CPU.
+
+**MXR pre-compilation cache — 39x startup improvement:**
+
+On first startup, ragpipe compiles ONNX models to `.mxr` format via `ORT_MIGRAPHX_MODEL_CACHE_PATH`. Subsequent startups load pre-compiled `.mxr` files directly (non-gfx1151 AMD GPUs with MIGraphX):
+
+| Startup type | Time | Mechanism |
+|---|---|---|
+| Cold (first ever) | ~3:53 | JIT compilation |
+| Warm (.mxr cached) | ~6 seconds | Load from `ORT_MIGRAPHX_MODEL_CACHE_PATH` |
+
+Cached files are ~149 MB per model. The cache persists across restarts — do not restart ragpipe casually; the warm path is fast enough for development but the cold path still takes ~4 minutes.
 
 ```
-Environment requirements for MIGraphX:
-- HSA_OVERRIDE_GFX_VERSION=11.5.1 (required for gfx1151)
-- MIGRAPHX_BATCH_SIZE=64 (must be ≥ RAG_TOP_K; assertion enforces this at startup)
+Environment for MXR cache (non-gfx1151 MIGraphX):
+- ORT_MIGRAPHX_MODEL_CACHE_PATH=/home/default/.cache/ragpipe/mxr
 ```
 
-The reranker (MiniLM-L-6-v2) runs on CPU — MIGraphX fails at inference with "Not computable: gpu::precompile_op" for this model.
+On gfx1151, the embedder and reranker use CPU instead of MIGraphX, so MXR caching does not apply. The cold start still takes ~3:53 on first boot for ONNX model JIT compilation.
+
+**⚠️ Cold start: ~3:53 on first query.** Warm start (MXR cached, non-gfx1151): ~6 seconds. Plan restarts accordingly.
 
 ## Prometheus metrics
 
@@ -160,13 +172,13 @@ ragpipe_chunks_retrieved_total 5678
 # TYPE ragpipe_invalid_citations_total counter
 ragpipe_invalid_citations_total 12
 
-# HELP ragpipe_embed_cache_hits_total Embedding cache hits
-# TYPE ragpipe_embed_cache_hits_total counter
-ragpipe_embed_cache_hits_total 890
+# HELP ragpipe_embed_cache_hits Embedding cache hits
+# TYPE ragpipe_embed_cache_hits counter
+ragpipe_embed_cache_hits 890
 
-# HELP ragpipe_embed_cache_misses_total Embedding cache misses
-# TYPE ragpipe_embed_cache_misses_total counter
-ragpipe_embed_cache_misses_total 344
+# HELP ragpipe_embed_cache_misses Embedding cache misses
+# TYPE ragpipe_embed_cache_misses counter
+ragpipe_embed_cache_misses 344
 
 # HELP ragpipe_request_duration_seconds Request latency histogram
 # TYPE ragpipe_request_duration_seconds histogram
@@ -180,11 +192,12 @@ ragpipe_request_duration_seconds_bucket{le="0.5"} 500
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/admin/config` | Returns current routing and system prompt configuration |
+| `GET` | `/admin/mxr-status` | Returns MXR cache status (cached models, file sizes) |
 | `POST` | `/admin/reload-prompt` | Hot-reload system prompt from file/env (requires `RAGPIPE_ADMIN_TOKEN`) |
 | `POST` | `/admin/reload-routes` | Hot-reload routes from `RAGPIPE_ROUTES_FILE` (requires `RAGPIPE_ADMIN_TOKEN`) |
-| `POST` | `/admin/reload-system-prompt` | Alias for `/admin/reload-prompt` (requires `RAGPIPE_ADMIN_TOKEN`) |
-| `POST` | `/admin/classify` | Test route classification without a real query (requires `RAGPIPE_ADMIN_TOKEN`) |
+| `POST` | `/admin/compile-mxr` | Trigger MXR pre-compilation (non-blocking, returns 202; requires `RAGPIPE_ADMIN_TOKEN`) |
 
 ```bash
 # Reload system prompt (hot-reload, no restart needed)
@@ -199,11 +212,13 @@ curl -X POST http://localhost:8090/admin/reload-routes \
 curl http://localhost:8090/admin/config \
   -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN"
 
-# Test route classification
-curl -X POST http://localhost:8090/admin/classify \
-  -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What does the NDAA say about AI?"}'
+# Get MXR cache status
+curl http://localhost:8090/admin/mxr-status \
+  -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN"
+
+# Trigger MXR pre-compilation (non-blocking)
+curl -X POST http://localhost:8090/admin/compile-mxr \
+  -H "Authorization: Bearer $RAGPIPE_ADMIN_TOKEN"
 ```
 
 ## rag_metadata
@@ -238,7 +253,7 @@ titles = [c["title"] for c in response.rag_metadata["cited_chunks"]]
 
 ## Known issues
 
-- **⚠️ MIGraphX startup (~3 min):** The first query after ragpipe startup takes ~3 minutes while MIGraphX compiles the inference graph. Plan restarts accordingly. Do not restart ragpipe in production unless critical.
+- **⚠️ Cold start (~3:53):** First query after ragpipe startup takes ~3:53 while ONNX models are compiled. Warm start (MXR cached): ~6 seconds. Do not restart ragpipe in production unless critical.
 - **Streaming citation stripping**: Streaming responses are audited and validated post-hoc (dual-path accumulation), but invalid citations cannot be stripped because the text has already been delivered to the client. Invalid citations are logged as errors. Non-streaming requests strip invalid citations before delivery.
 - **LLM phrasing variance**: The negative finding classifier depends on the model using recognizable negation patterns ("no evidence", "not mentioned", etc.) before the `⚠️` marker. When the model phrases its negative finding differently, the response may be classified as `mixed` instead of `general`.
 - **Passthrough model list**: `/v1/models` passthrough always returns the global upstream's model list, not the routed model's list.
@@ -248,7 +263,7 @@ titles = [c["title"] for c in response.rag_metadata["cited_chunks"]]
 
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v
+python -m pytest tests/ -v    # 164 tests
 ruff check && ruff format --check
 ```
 
