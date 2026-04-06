@@ -110,9 +110,7 @@ def _get_providers() -> list[str]:
 
     # On gfx1151 (Strix Halo), skip MIGraphX — tensors land in GTT, CPU is faster
     if _is_gfx1151() and "MIGraphXExecutionProvider" in available:
-        log.info(
-            "ONNX providers: [CPUExecutionProvider] (gfx1151 detected, MIGraphX skipped — CPU is faster on UMA)"
-        )
+        log.info("ONNX providers: [CPUExecutionProvider] (gfx1151 detected, MIGraphX skipped — CPU is faster on UMA)")
         return ["CPUExecutionProvider"]
 
     # Auto-detect: pick the first available GPU provider.
