@@ -550,7 +550,13 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
 
     # Format context with citation-friendly labels
     effective_ds = pipeline.docstore if pipeline else docstore
-    context = format_context(ranked, docstore=effective_ds)
+    if effective_ds is not None:
+        context, injected_headers = format_context(ranked, docstore=effective_ds)
+        # Header chunks (chunk 0) are shown to the model with [doc_id:0] labels
+        # so they must be in retrieved_set to pass citation validation (fixes #38)
+        retrieved_set |= injected_headers
+    else:
+        context = format_context(ranked)
     effective_prompt = pipeline.system_prompt if pipeline else None
     system_content = build_system_message(context, system_prompt=effective_prompt)
 

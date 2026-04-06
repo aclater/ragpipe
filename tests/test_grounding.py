@@ -473,6 +473,97 @@ def test_context_injection_omits_empty_title():
     assert "[abc-123:0]" in ctx
 
 
+# ── Header chunk injection and retrieved_set (fixes #38) ────────────────────
+
+
+def test_format_context_returns_injected_headers_with_docstore():
+    """format_context with docstore returns (context, injected_headers) tuple."""
+    mod = _reload()
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {
+        ("doc1", 0): {"text": "header text", "title": "Doc Title", "source": "test.md"},
+    }
+    # Ranked chunks have chunk_id=2 only — chunk 0 must be fetched as header
+    ranked = [
+        {"doc_id": "doc1", "chunk_id": 2, "source": "test.md", "title": "", "text": "body"},
+    ]
+    ctx, injected = mod.format_context(ranked, docstore=mock_ds)
+    assert "[doc1:0]" in ctx
+    assert "[doc1:2]" in ctx
+    assert ("doc1", 0) in injected
+
+
+def test_format_context_no_injected_headers_when_chunk0_in_results():
+    """When chunk 0 is already in ranked results, no header is injected."""
+    mod = _reload()
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {}
+    ranked = [
+        {"doc_id": "doc1", "chunk_id": 0, "source": "test.md", "title": "", "text": "chunk0"},
+        {"doc_id": "doc1", "chunk_id": 1, "source": "test.md", "title": "", "text": "chunk1"},
+    ]
+    _ctx, injected = mod.format_context(ranked, docstore=mock_ds)
+    assert injected == set()
+
+
+def test_format_context_empty_with_docstore():
+    """Empty ranked chunks with docstore returns empty string and empty set."""
+    mod = _reload()
+    mock_ds = MagicMock()
+    ctx, injected = mod.format_context([], docstore=mock_ds)
+    assert ctx == ""
+    assert injected == set()
+
+
+def test_header_citation_passes_validation_with_injected_set():
+    """Regression test for #38: citations to header chunks must pass validation
+    when the injected headers are added to retrieved_set."""
+    mod = _reload()
+    mock_ds = MagicMock()
+    # Docstore has both the header chunk and the retrieved chunk
+    mock_ds.get_chunks.return_value = {
+        ("doc1", 0): {"text": "header", "title": "Title", "source": "s"},
+        ("doc1", 2): {"text": "body", "title": "Title", "source": "s"},
+    }
+
+    # Simulate the retrieval pipeline: ranked has chunk 2, not chunk 0
+    ranked = [
+        {"doc_id": "doc1", "chunk_id": 2, "source": "s", "title": "", "text": "body"},
+    ]
+    all_candidates = ranked  # pre-rerank candidates
+    retrieved_set = {(c["doc_id"], c["chunk_id"]) for c in all_candidates}
+
+    # format_context injects the header
+    _ctx, injected_headers = mod.format_context(ranked, docstore=mock_ds)
+    retrieved_set |= injected_headers
+
+    # Model cites both the header and the retrieved chunk
+    citations = [("doc1", 0), ("doc1", 2)]
+    valid, errors = mod.validate_citations(citations, retrieved_set, mock_ds)
+
+    assert len(valid) == 2, f"Expected both citations valid, got errors: {errors}"
+    assert len(errors) == 0
+
+
+def test_header_citation_fails_without_injected_set():
+    """Before the fix, header citations would fail validation."""
+    mod = _reload()
+    mock_ds = MagicMock()
+    mock_ds.get_chunks.return_value = {
+        ("doc1", 0): {"text": "header", "title": "Title", "source": "s"},
+        ("doc1", 2): {"text": "body", "title": "Title", "source": "s"},
+    }
+
+    # Without injecting headers into retrieved_set, chunk 0 fails
+    retrieved_set = {("doc1", 2)}
+    citations = [("doc1", 0), ("doc1", 2)]
+    _valid, errors = mod.validate_citations(citations, retrieved_set, mock_ds)
+
+    assert len(errors) == 1
+    assert errors[0]["chunk_id"] == 0
+    assert errors[0]["reason"] == "not_in_retrieved_set"
+
+
 # ── Title in rag_metadata ────────────────────────────────────────────────────
 
 

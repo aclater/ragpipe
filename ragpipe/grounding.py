@@ -91,7 +91,7 @@ def reload_system_prompt() -> dict:
     }
 
 
-def format_context(ranked_chunks: list[dict], docstore=None) -> str:
+def format_context(ranked_chunks: list[dict], docstore=None) -> str | tuple[str, set[tuple[str, int]]]:
     """Format reranked chunks as context with doc_id:chunk_id references.
 
     Each chunk is labeled with its doc_id:chunk_id so the model can cite
@@ -101,16 +101,25 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
     fetched and prepended as a document header so the model can identify
     what the document is (e.g. its title or short title).
 
+    Returns:
+        When docstore is None: the context string.
+        When docstore is provided: a tuple of (context_string, injected_headers)
+        where injected_headers is a set of (doc_id, 0) tuples for headers
+        that were added to the context but were not in the original ranked
+        results. Callers must add these to the retrieved_set so that
+        citations to header chunks pass validation.
+
     NOTE: Output order is deterministic (preserves reranker sort order) and
     contains no timestamps, random values, or variable whitespace. This is
     intentional — identical retrieval results produce byte-identical context,
     maximizing llama-server KV cache prefix reuse.
     """
     if not ranked_chunks:
-        return ""
+        return ("", set()) if docstore is not None else ""
 
     # Collect unique doc_ids and fetch their header chunks (chunk 0)
     doc_headers: dict[str, dict] = {}
+    injected_headers: set[tuple[str, int]] = set()
     if docstore:
         seen_doc_ids = {r["doc_id"] for r in ranked_chunks if r.get("doc_id")}
         # Only fetch headers for docs where chunk 0 isn't already in the results
@@ -124,6 +133,7 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
                 source = chunk_data.get("source", "") if isinstance(chunk_data, dict) else ""
                 # Truncate header to first 500 chars — just need the title
                 doc_headers[did] = {"text": text[:500], "title": title, "source": source}
+                injected_headers.add((did, 0))
 
     parts = []
     header_emitted: set[str] = set()
@@ -147,7 +157,10 @@ def format_context(ranked_chunks: list[dict], docstore=None) -> str:
         title_part = f'(from: "{title}") ' if title else ""
         parts.append(f"[{doc_id}:{chunk_id}] {title_part}(Source: {source})\n{text}")
 
-    return "\n\n".join(parts)
+    context = "\n\n".join(parts)
+    if docstore is not None:
+        return context, injected_headers
+    return context
 
 
 def build_system_message(context: str, *, system_prompt: str | None = None) -> str:
