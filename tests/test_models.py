@@ -174,6 +174,28 @@ def test_get_providers_invalid_device_falls_back():
     assert providers == ["CPUExecutionProvider"]
 
 
+def test_get_providers_force_cpu_overrides_gpu():
+    """RAGPIPE_FORCE_CPU=1 should force CPU even when GPU is available."""
+    p_ctx, e_ctx = _patch_providers(
+        ["CUDAExecutionProvider", "MIGraphXExecutionProvider", "CPUExecutionProvider"],
+        env_overrides={"RAGPIPE_FORCE_CPU": "1"},
+    )
+    with p_ctx, e_ctx:
+        providers = _get_providers()
+    assert providers == ["CPUExecutionProvider"]
+
+
+def test_get_providers_force_cpu_true():
+    """RAGPIPE_FORCE_CPU=true should force CPU."""
+    p_ctx, e_ctx = _patch_providers(
+        ["MIGraphXExecutionProvider", "CPUExecutionProvider"],
+        env_overrides={"RAGPIPE_FORCE_CPU": "true"},
+    )
+    with p_ctx, e_ctx:
+        providers = _get_providers()
+    assert providers == ["CPUExecutionProvider"]
+
+
 # ── MXR cache ──────────────────────────────────────────────────────────────
 
 
