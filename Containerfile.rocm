@@ -4,7 +4,7 @@
 # (same pattern as ragstuffer ROCm variant).
 # ROCm 7.2 required for gfx1151 (RDNA 3.5/4) support via gfx11-generic ISA.
 # For CPU-only builds, use the default Containerfile (UBI9/python-311).
-FROM docker.io/rocm/dev-ubuntu-24.04:7.2.1
+FROM docker.io/rocm/dev-ubuntu-24.04:7.2.1@sha256:fe29799baf7b8db986a707110c15579dc0fb6e39d48973fbb82dfc33a0c7e179
 
 # Install ROCm runtime libs needed by onnxruntime-migraphx's provider .so.
 # migraphx: libmigraphx_c.so (graph compiler)
