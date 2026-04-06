@@ -13,12 +13,28 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  hadolint:
+    name: Hadolint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile:
+          - Containerfile
+          - Containerfile.rocm
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+
   build:
     name: Build & push (${{ matrix.variant }})
     runs-on: ubuntu-latest
@@ -54,6 +70,7 @@ jobs:
             type=sha,suffix=${{ matrix.suffix }}
 
       - name: Build (PR) / Build & push (main/tag)
+        id: build
         uses: docker/build-push-action@v7.0.0
         with:
           context: .
@@ -61,6 +78,31 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: digest
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ghcr.io/aclater/${{ github.event.repository.name }}:main${{ matrix.suffix }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v4.1.0
+        id: attest
+        with:
+          subject-name: ghcr.io/aclater/${{ github.event.repository.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: sbom-${{ matrix.variant }}-${{ github.run_id }}
+          path: sbom.spdx.json
+          retention-days: 90
 
   sbom:
     name: SBOM (CycloneDX)
