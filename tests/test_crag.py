@@ -6,6 +6,7 @@ Verifies the CRAG pattern in retrieve_and_rerank():
 - Maximum 1 retry
 - CRAG metadata fields populated correctly
 - Fallback to general when retry also fails
+- rag_metadata in API response includes CRAG fields (fixes #50)
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -226,3 +227,86 @@ async def test_crag_rewrite_query_function():
     call_args = mock_client.post.call_args
     messages = call_args.kwargs.get("json", call_args.args[1] if len(call_args.args) > 1 else {}).get("messages", [])
     assert any("/nothink" in msg.get("content", "") for msg in messages)
+
+
+# ── test_rag_metadata_includes_crag_fields ──────────────────────────────────
+
+
+def test_process_response_includes_crag_fields_when_rewritten():
+    """process_response should include retrieval_attempts and query_rewritten
+    in rag_metadata when CRAG rewrote the query (fixes #50)."""
+    response_data = {
+        "choices": [{"message": {"content": "Answer with no citations"}}],
+    }
+    ctx = {
+        "user_query": "test query",
+        "ranked": [],
+        "retrieved_set": set(),
+        "corpus_coverage": "none",
+        "crag": {
+            "retrieval_attempts": 2,
+            "query_rewritten": True,
+            "original_query": "test query",
+            "rewritten_query": "improved query",
+        },
+    }
+
+    result_data, _metadata = app.process_response(response_data, ctx)
+
+    assert "rag_metadata" in result_data
+    rag_meta = result_data["rag_metadata"]
+    assert rag_meta["retrieval_attempts"] == 2
+    assert rag_meta["query_rewritten"] is True
+    assert rag_meta["original_query"] == "test query"
+    assert rag_meta["rewritten_query"] == "improved query"
+
+
+def test_process_response_includes_crag_fields_when_not_rewritten():
+    """process_response should include retrieval_attempts=1 and
+    query_rewritten=False when CRAG did not rewrite (fixes #50)."""
+    response_data = {
+        "choices": [{"message": {"content": "Answer with no citations"}}],
+    }
+    ctx = {
+        "user_query": "test query",
+        "ranked": [],
+        "retrieved_set": set(),
+        "corpus_coverage": "none",
+        "crag": {
+            "retrieval_attempts": 1,
+            "query_rewritten": False,
+        },
+    }
+
+    result_data, _metadata = app.process_response(response_data, ctx)
+
+    assert "rag_metadata" in result_data
+    rag_meta = result_data["rag_metadata"]
+    assert rag_meta["retrieval_attempts"] == 1
+    assert rag_meta["query_rewritten"] is False
+
+
+def test_validate_streamed_response_includes_crag_fields():
+    """_validate_streamed_response should include CRAG fields in metadata
+    for streaming responses (fixes #50)."""
+    ctx = {
+        "user_query": "test query",
+        "ranked": [],
+        "retrieved_set": set(),
+        "corpus_coverage": "none",
+        "docstore": None,
+        "crag": {
+            "retrieval_attempts": 2,
+            "query_rewritten": True,
+            "original_query": "test query",
+            "rewritten_query": "improved query",
+        },
+    }
+
+    metadata = app._validate_streamed_response("Answer with no citations", ctx)
+
+    assert metadata is not None
+    assert metadata["retrieval_attempts"] == 2
+    assert metadata["query_rewritten"] is True
+    assert metadata["original_query"] == "test query"
+    assert metadata["rewritten_query"] == "improved query"
