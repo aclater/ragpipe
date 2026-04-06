@@ -47,17 +47,38 @@ def test_reload_prompt_no_auth_header(client):
     assert resp.status_code == 401
 
 
-def test_reload_prompt_disabled_without_token(monkeypatch):
-    """Without RAGPIPE_ADMIN_TOKEN, the endpoint returns 403."""
+def test_reload_prompt_auto_generates_token_when_empty(monkeypatch, tmp_path):
+    """When RAGPIPE_ADMIN_TOKEN is empty and no token file exists,
+    a token is auto-generated so admin endpoints are accessible."""
     monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN", "")
+    token_file = tmp_path / "admin_token"
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN_FILE", str(token_file))
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("Test prompt")
+    monkeypatch.setenv("RAGPIPE_SYSTEM_PROMPT_FILE", str(prompt_file))
     import importlib
 
     import ragpipe.app
 
     importlib.reload(ragpipe.app)
+
+    # Token was auto-generated
+    assert ragpipe.app.ADMIN_TOKEN != ""
+    assert token_file.is_file()
+    saved_token = token_file.read_text().strip()
+    assert saved_token == ragpipe.app.ADMIN_TOKEN
+
+    # Endpoint works with the auto-generated token
     tc = TestClient(ragpipe.app.app)
+    resp = tc.post(
+        "/admin/reload-prompt",
+        headers={"Authorization": f"Bearer {ragpipe.app.ADMIN_TOKEN}"},
+    )
+    assert resp.status_code == 200
+
+    # But unauthenticated access is still rejected
     resp = tc.post("/admin/reload-prompt")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_get_config_requires_auth(client):
@@ -193,6 +214,47 @@ def test_reload_routes_detects_change(monkeypatch, tmp_path):
     assert data["changed"] is True
     assert data["route_count"] == 1
     assert ragpipe.app._router is mock_router
+
+
+def test_token_loaded_from_file(monkeypatch, tmp_path):
+    """Token file is used when env var is empty."""
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN", "")
+    token_file = tmp_path / "admin_token"
+    token_file.write_text("file-secret-token\n")
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN_FILE", str(token_file))
+    import importlib
+
+    import ragpipe.app
+
+    importlib.reload(ragpipe.app)
+    assert ragpipe.app.ADMIN_TOKEN == "file-secret-token"  # noqa: S105
+
+
+def test_env_var_takes_precedence_over_file(monkeypatch, tmp_path):
+    """RAGPIPE_ADMIN_TOKEN env var takes precedence over token file."""
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN", "env-token")
+    token_file = tmp_path / "admin_token"
+    token_file.write_text("file-token\n")
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN_FILE", str(token_file))
+    import importlib
+
+    import ragpipe.app
+
+    importlib.reload(ragpipe.app)
+    assert ragpipe.app.ADMIN_TOKEN == "env-token"  # noqa: S105
+
+
+def test_auto_generated_token_file_permissions(monkeypatch, tmp_path):
+    """Auto-generated token file must have restricted permissions (0o600)."""
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN", "")
+    token_file = tmp_path / "admin_token"
+    monkeypatch.setenv("RAGPIPE_ADMIN_TOKEN_FILE", str(token_file))
+    import importlib
+
+    import ragpipe.app
+
+    importlib.reload(ragpipe.app)
+    assert token_file.stat().st_mode & 0o777 == 0o600
 
 
 def test_reload_system_prompt_alias(monkeypatch, tmp_path):

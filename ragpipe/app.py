@@ -18,6 +18,7 @@ import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 import uvicorn
@@ -59,7 +60,43 @@ log = logging.getLogger("ragpipe")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-ADMIN_TOKEN = os.environ.get("RAGPIPE_ADMIN_TOKEN", "")
+
+def _load_admin_token() -> str:
+    """Load admin token from env var, token file, or auto-generate one.
+
+    Priority: RAGPIPE_ADMIN_TOKEN env var > token file > auto-generate.
+    Token file path: RAGPIPE_ADMIN_TOKEN_FILE env var or ~/.config/ragpipe/admin_token.
+    """
+    token = os.environ.get("RAGPIPE_ADMIN_TOKEN", "").strip()
+    if token:
+        log.info("Admin token loaded from RAGPIPE_ADMIN_TOKEN env var")
+        return token
+
+    token_file = Path(
+        os.environ.get("RAGPIPE_ADMIN_TOKEN_FILE", "") or Path.home() / ".config" / "ragpipe" / "admin_token"
+    )
+    if token_file.is_file():
+        token = token_file.read_text().strip()
+        if token:
+            log.info("Admin token loaded from %s", token_file)
+            return token
+
+    # Auto-generate a token and persist it for future runs
+    import secrets
+
+    token = secrets.token_urlsafe(32)
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(token + "\n")
+    token_file.chmod(0o600)
+    log.warning(
+        "No admin token configured — auto-generated and saved to %s. "
+        "Set RAGPIPE_ADMIN_TOKEN in your env or copy this token.",
+        token_file,
+    )
+    return token
+
+
+ADMIN_TOKEN = _load_admin_token()
 ROUTES_FILE = os.environ.get("RAGPIPE_ROUTES_FILE")
 MODEL_URL = os.environ.get("MODEL_URL", "http://127.0.0.1:8080")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
