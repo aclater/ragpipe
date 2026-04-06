@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   packages: write
+  attestations: write
 
 env:
   REGISTRY: ghcr.io
@@ -63,18 +64,34 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   sbom:
-    name: SBOM (CycloneDX)
+    name: SBOM & Attestation (${{ matrix.variant }})
     runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        include:
+          - variant: cpu
+            suffix: ""
+          - variant: rocm
+            suffix: "-rocm"
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-python@v6.2.0
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.0
         with:
-          python-version: "3.12"
-      - name: Install dependencies and generate SBOM
-        run: |
-          pip install --quiet . cyclonedx-bom
-          cyclonedx-py environment -o sbom.json --output-format json
-      - uses: actions/upload-artifact@v7.0.0
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}${{ matrix.suffix }}
+          format: cyclonedx-json
+          output-file: sbom.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v4.1.0
         with:
-          name: sbom-cyclonedx
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}${{ matrix.suffix }}
+          sbom: sbom.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: sbom-cyclonedx-${{ matrix.variant }}
           path: sbom.json
+          retention-days: 90
