@@ -990,7 +990,8 @@ async def chat_completions(request: Request):
                                 "object": "chat.completion.chunk",
                             }
                             yield f"data: {json.dumps(summary_chunk)}\n\n"
-                        yield "data: [DONE]\n\n"
+                        # [DONE] is deferred to validate_after_stream so
+                        # rag_metadata can be emitted before it
                         continue
                     try:
                         chunk_data = json.loads(payload)
@@ -1009,7 +1010,13 @@ async def chat_completions(request: Request):
                     yield raw + "\n\n"
 
         async def validate_after_stream(response: StreamingResponse) -> StreamingResponse:
-            """Wrap the streaming response to trigger post-hoc validation."""
+            """Wrap the streaming response to trigger post-hoc validation.
+
+            Emits rag_metadata as a final SSE event before [DONE] so streaming
+            clients can access grounding, citations, retrieval_attempts, and
+            query_rewritten — the same fields non-streaming clients get in the
+            JSON response body.
+            """
             async for chunk in response.body_iterator:
                 yield chunk
             # Stream complete — run citation validation on accumulated text
@@ -1017,6 +1024,9 @@ async def chat_completions(request: Request):
             if full_content:
                 metadata = _validate_streamed_response(full_content, retrieval_ctx)
                 if metadata:
+                    # Emit rag_metadata as SSE event before [DONE]
+                    yield f"data: {json.dumps({'rag_metadata': metadata})}\n\n"
+
                     model = body.get("model")
                     route_name = retrieval_ctx.get("route_name")
                     task = asyncio.create_task(
@@ -1041,6 +1051,7 @@ async def chat_completions(request: Request):
                     # Record Prometheus metrics after streaming completes
                     elapsed = time.monotonic() - request_start
                     _record_query_metrics(elapsed, metadata, retrieval_ctx)
+            yield "data: [DONE]\n\n"
 
         return StreamingResponse(
             validate_after_stream(StreamingResponse(stream_response(), media_type="text/event-stream")),
