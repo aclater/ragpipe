@@ -82,18 +82,28 @@ inference and sliced after. The startup warmup must use exactly 64 inputs
 so the compiled graph matches production traffic — one compile, cached
 forever.
 
-**⚠️ Startup time: ~3 minutes on gfx1151.** Do not restart ragpipe in
+**On gfx1151 (Strix Halo), both embedder and reranker use CPU.** MIGraphX
+is skipped automatically via `_is_gfx1151()` detection (checks /proc/cpuinfo
+for "Strix Halo" or Family 26 + Model 112). This is because:
+- MIGraphX tensors land in GTT (system RAM), not VRAM — ROCm VMM is not
+  supported on UMA APUs by design
+- CPU is faster than MIGraphX-on-GTT for small models like gte-modernbert-base
+
+**On other AMD GPUs (non-UMA), MIGraphX is used normally.**
+
+**`RAGPIPE_FORCE_CPU=1`** can force CPU-only mode on any platform.
+
+**`RAGPIPE_DEVICE=cpu|migraphx|cuda`** to select a specific provider.
+
+**⚠️ Startup time with MIGraphX: ~3 minutes.** Do not restart ragpipe in
 production unless critical.
 
 `RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE`. An assertion at startup
 enforces this. Do not remove it.
 
-**Exception: the reranker runs on CPU.** MIGraphX compiles the MiniLM-L-6
-reranker graph on gfx1151 but fails at inference with "Not computable:
-gpu::precompile_op". The reranker is forced to `CPUExecutionProvider` in
-`models.py:Reranker.load()`. Do not change this without verifying the
-MIGraphX runtime error is resolved upstream. The reranker is small (87 MB)
-and fast enough on CPU (~10ms for 40 candidates).
+The reranker always runs on CPU — MIGraphX compiles the MiniLM-L-6 reranker
+graph on gfx1151 but fails at inference with "Not computable:
+gpu::precompile_op". The embedder also runs on CPU on gfx1151 (auto-detected).
 
 Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
 errors against ROCm 7.x and is no longer maintained by AMD. The only

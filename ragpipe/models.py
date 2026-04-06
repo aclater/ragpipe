@@ -45,13 +45,36 @@ _DEVICE_TO_PROVIDER = {
 _GPU_PROVIDERS = ["CUDAExecutionProvider", "MIGraphXExecutionProvider"]
 
 
+def _is_gfx1151() -> bool:
+    """Detect if running on gfx1151 (Strix Halo) UMA APU.
+
+    On gfx1151, MIGraphX tensors land in GTT (system RAM) not VRAM because
+    ROCm VMM is not supported on UMA APUs by design. CPU is faster for
+    small models in this configuration.
+    """
+    try:
+        with open("/proc/cpuinfo") as f:
+            cpuinfo = f.read()
+        if "Strix Halo" in cpuinfo or "Strix_Halo" in cpuinfo:
+            return True
+        if "Family 26" in cpuinfo and "Model 112" in cpuinfo:
+            return True
+    except OSError:
+        pass
+    return False
+
+
 def _get_providers() -> list[str]:
     """Select ONNX Runtime execution providers.
 
     Priority:
-    1. If RAGPIPE_DEVICE is set, use the corresponding provider (with CPU fallback).
-    2. Otherwise, auto-detect: prefer GPU providers over CPU.
-    3. Always include CPUExecutionProvider as a fallback.
+    1. If RAGPIPE_FORCE_CPU=1 or RAGPIPE_DEVICE=cpu, use CPU only.
+    2. If RAGPIPE_DEVICE is set to a specific provider, use it (with CPU fallback).
+    3. If gfx1151 (Strix Halo) is detected, skip MIGraphX and use CPU.
+       This is because on UMA APUs, MIGraphX tensors land in GTT (system RAM)
+       and CPU outperforms MIGraphX for small models like gte-modernbert-base.
+    4. Otherwise, auto-detect: prefer GPU providers over CPU.
+    5. Always include CPUExecutionProvider as a fallback.
 
     Returns a list suitable for ``ort.InferenceSession(providers=...)``.
     """
@@ -79,6 +102,18 @@ def _get_providers() -> list[str]:
                 providers.append("CPUExecutionProvider")
             log.info("ONNX providers (forced via RAGPIPE_DEVICE=%s): %s", forced, providers)
             return providers
+
+    # RAGPIPE_FORCE_CPU=1 override — useful for UMA APUs where CPU is faster
+    if os.environ.get("RAGPIPE_FORCE_CPU", "").strip().lower() in ("1", "true", "yes"):
+        log.info("ONNX providers: [CPUExecutionProvider] (forced via RAGPIPE_FORCE_CPU)")
+        return ["CPUExecutionProvider"]
+
+    # On gfx1151 (Strix Halo), skip MIGraphX — tensors land in GTT, CPU is faster
+    if _is_gfx1151() and "MIGraphXExecutionProvider" in available:
+        log.info(
+            "ONNX providers: [CPUExecutionProvider] (gfx1151 detected, MIGraphX skipped — CPU is faster on UMA)"
+        )
+        return ["CPUExecutionProvider"]
 
     # Auto-detect: pick the first available GPU provider.
     for gpu in _GPU_PROVIDERS:
