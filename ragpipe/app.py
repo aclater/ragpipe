@@ -187,6 +187,9 @@ async def _write_query_log(
     model: str | None,
     route: str | None,
     collection_id: str | None,
+    retrieval_attempts: int = 1,
+    query_rewritten: bool = False,
+    original_query: str | None = None,
 ) -> None:
     """Write a completed request to query_log. Fire-and-forget, never surfaces errors."""
     try:
@@ -198,8 +201,9 @@ async def _write_query_log(
                 """
                 INSERT INTO query_log
                     (collection_id, query_text, query_hash, grounding, cited_chunks,
-                     total_chunks, latency_ms, model, route)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     total_chunks, latency_ms, model, route,
+                     retrieval_attempts, query_rewritten, original_query)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 """,
                 collection_id,
                 query_text,
@@ -210,6 +214,9 @@ async def _write_query_log(
                 latency_ms,
                 model,
                 route,
+                retrieval_attempts,
+                query_rewritten,
+                original_query,
             )
     except Exception:
         log.warning("Failed to write query_log entry — continuing", exc_info=True)
@@ -508,19 +515,56 @@ def _rerank_sync(
     return rerank(query, candidates, min_score=min_score, top_n=top_n)
 
 
+async def _rewrite_query(query: str, *, pipeline=None) -> str:
+    """Use the LLM to rewrite a query that returned no results.
+
+    Calls the route's model (or global MODEL_URL) with /nothink to
+    disable thinking mode and get a concise rewritten query.
+    """
+    target_url = pipeline.config.model_url if pipeline else MODEL_URL
+    prompt = (
+        f"Given the question: '{query}'\n"
+        "The retrieval system found no relevant documents.\n"
+        "Rewrite this question to be more likely to find relevant information.\n"
+        "Return only the rewritten question, nothing else."
+    )
+    payload = {
+        "model": "default",
+        "messages": [{"role": "user", "content": f"/nothink\n{prompt}"}],
+        "temperature": 0,
+        "max_tokens": 200,
+    }
+    try:
+        resp = await _http_client.post(
+            f"{target_url}/v1/chat/completions",
+            json=payload,
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        rewritten = data["choices"][0]["message"].get("content", "").strip()
+        if rewritten:
+            log.info("CRAG rewrite: '%s' → '%s'", query[:80], rewritten[:80])
+            return rewritten
+    except Exception:
+        log.warning("CRAG query rewrite failed — using original query", exc_info=True)
+    return query
+
+
 async def retrieve_and_rerank(
     user_query: str,
     *,
     pipeline=None,
-) -> tuple[list[dict], list[dict]]:
-    """Full async retrieval pipeline: Qdrant → hydrate → rerank.
+) -> tuple[list[dict], list[dict], dict]:
+    """Full async retrieval pipeline: Qdrant → hydrate → rerank → CRAG retry.
 
     When pipeline is provided, uses per-route resources. Otherwise
     falls back to module-level singletons (backward compatible).
 
-    Returns (ranked_chunks, all_retrieved_refs) where all_retrieved_refs
-    is the full set of hydrated results before reranking, needed for
-    citation validation.
+    Implements Corrective RAG (CRAG): if reranking filters out all chunks
+    (low confidence), rewrites the query via LLM and retries once.
+
+    Returns (ranked_chunks, all_retrieved_refs, crag_metadata).
     """
     loop = asyncio.get_running_loop()
 
@@ -541,10 +585,36 @@ async def retrieve_and_rerank(
         rerank_kwargs = {}
         ds = None
 
+    crag_meta = {
+        "retrieval_attempts": 1,
+        "query_rewritten": False,
+    }
+
     refs = await loop.run_in_executor(_embed_executor, lambda: _search_qdrant_sync(user_query, **search_kwargs))
     candidates = await _hydrate(refs, ds=ds)
     ranked = await loop.run_in_executor(_rerank_executor, lambda: _rerank_sync(user_query, candidates, **rerank_kwargs))
-    return ranked, candidates
+
+    # CRAG: if reranking filtered everything, rewrite and retry once
+    if not ranked and candidates:
+        rewritten = await _rewrite_query(user_query, pipeline=pipeline)
+        if rewritten != user_query:
+            crag_meta["retrieval_attempts"] = 2
+            crag_meta["query_rewritten"] = True
+            crag_meta["original_query"] = user_query
+            crag_meta["rewritten_query"] = rewritten
+
+            log.info("CRAG retry: %d candidates scored below threshold, retrying with rewritten query", len(candidates))
+            refs2 = await loop.run_in_executor(_embed_executor, lambda: _search_qdrant_sync(rewritten, **search_kwargs))
+            candidates2 = await _hydrate(refs2, ds=ds)
+            ranked2 = await loop.run_in_executor(
+                _rerank_executor, lambda: _rerank_sync(rewritten, candidates2, **rerank_kwargs)
+            )
+
+            # Merge candidates for citation validation (both attempts)
+            all_candidates = candidates + [c for c in candidates2 if c not in candidates]
+            return ranked2, all_candidates, crag_meta
+
+    return ranked, candidates, crag_meta
 
 
 # ── Request processing ───────────────────────────────────────────────────────
@@ -577,9 +647,9 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
     rag_enabled = pipeline.config.rag_enabled if pipeline else True
 
     if rag_enabled:
-        ranked, all_candidates = await retrieve_and_rerank(user_query, pipeline=pipeline)
+        ranked, all_candidates, crag_meta = await retrieve_and_rerank(user_query, pipeline=pipeline)
     else:
-        ranked, all_candidates = [], []
+        ranked, all_candidates, crag_meta = [], [], {"retrieval_attempts": 1, "query_rewritten": False}
 
     corpus_coverage = determine_corpus_coverage(ranked)
 
@@ -630,6 +700,7 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
         "corpus_coverage": corpus_coverage,
         "user_query": user_query,
         "docstore": effective_ds,
+        "crag": crag_meta,
     }
 
 
@@ -700,6 +771,17 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         except Exception:
             log.exception("Failed to resolve chunk titles for cited chunks")
 
+    # Add CRAG metadata if query was rewritten
+    crag = ctx.get("crag", {})
+    if crag.get("query_rewritten"):
+        metadata["retrieval_attempts"] = crag["retrieval_attempts"]
+        metadata["query_rewritten"] = True
+        metadata["original_query"] = crag.get("original_query")
+        metadata["rewritten_query"] = crag.get("rewritten_query")
+    else:
+        metadata["retrieval_attempts"] = crag.get("retrieval_attempts", 1)
+        metadata["query_rewritten"] = False
+
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
 
@@ -767,6 +849,17 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
             cited_chunk_titles = effective_ds.get_chunks(valid_citations)
         except Exception:
             log.exception("Failed to resolve chunk titles for cited chunks (streaming)")
+
+    # Add CRAG metadata for streaming responses
+    crag = ctx.get("crag", {})
+    if crag.get("query_rewritten"):
+        metadata["retrieval_attempts"] = crag["retrieval_attempts"]
+        metadata["query_rewritten"] = True
+        metadata["original_query"] = crag.get("original_query")
+        metadata["rewritten_query"] = crag.get("rewritten_query")
+    else:
+        metadata["retrieval_attempts"] = crag.get("retrieval_attempts", 1)
+        metadata["query_rewritten"] = False
 
     log_audit(
         q_hash=query_hash(user_query),
@@ -937,6 +1030,9 @@ async def chat_completions(request: Request):
                             model=model,
                             route=route_name,
                             collection_id=None,
+                            retrieval_attempts=metadata.get("retrieval_attempts", 1),
+                            query_rewritten=metadata.get("query_rewritten", False),
+                            original_query=metadata.get("original_query"),
                         ),
                         name="query_log_write",
                     )
@@ -977,6 +1073,9 @@ async def chat_completions(request: Request):
                     model=model,
                     route=route_name,
                     collection_id=None,
+                    retrieval_attempts=metadata.get("retrieval_attempts", 1),
+                    query_rewritten=metadata.get("query_rewritten", False),
+                    original_query=metadata.get("original_query"),
                 ),
                 name="query_log_write",
             )
