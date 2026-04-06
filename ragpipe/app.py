@@ -60,6 +60,7 @@ log = logging.getLogger("ragpipe")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
+
 def _load_admin_token() -> str:
     """Load admin token from env var, token file, or auto-generate one.
 
@@ -72,8 +73,7 @@ def _load_admin_token() -> str:
         return token
 
     token_file = Path(
-        os.environ.get("RAGPIPE_ADMIN_TOKEN_FILE", "")
-        or Path.home() / ".config" / "ragpipe" / "admin_token"
+        os.environ.get("RAGPIPE_ADMIN_TOKEN_FILE", "") or Path.home() / ".config" / "ragpipe" / "admin_token"
     )
     if token_file.is_file():
         token = token_file.read_text().strip()
