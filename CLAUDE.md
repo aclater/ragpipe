@@ -68,19 +68,7 @@ docs/
 - Models downloaded from HuggingFace Hub, cached in RAGPIPE_MODEL_CACHE
 - Default embedding model (Alibaba-NLP/gte-modernbert-base) is quantized ONNX, 768d, CLS pooling
 
-## MIGraphX — AMD GPU inference (gfx1151 only)
-
-MIGraphXExecutionProvider is the correct and intended AMD GPU execution
-provider for ONNX Runtime on this system. ROCMExecutionProvider is
-ABI-incompatible with ROCm 7.x (`onnxruntime-rocm` links against
-ROCm 6.x `.so` versions — `libhipblas.so.2` vs `.so.3`,
-`libamdhip64.so.6` vs `.so.7`). It silently falls back to CPU.
-
-MIGraphX compiles static computation graphs at first use (JIT). All inputs
-must be padded to a fixed batch size (`MIGRAPHX_BATCH_SIZE=64`) before
-inference and sliced after. The startup warmup must use exactly 64 inputs
-so the compiled graph matches production traffic — one compile, cached
-forever.
+## MIGraphX — AMD GPU inference (non-gfx1151 only)
 
 **On gfx1151 (Strix Halo), both embedder and reranker use CPU.** MIGraphX
 is skipped automatically via `_is_gfx1151()` detection (checks /proc/cpuinfo
@@ -91,23 +79,33 @@ for "Strix Halo" or Family 26 + Model 112). This is because:
 
 **On other AMD GPUs (non-UMA), MIGraphX is used normally.**
 
+**MXR pre-compilation cache — 39x startup improvement:**
+
+The MXR cache uses `ORT_MIGRAPHX_MODEL_CACHE_PATH` to store pre-compiled
+ONNX models in `.mxr` format. On first startup, models are compiled and
+cached (~149 MB per model). Subsequent startups load from cache directly:
+
+| Startup | Time | Mechanism |
+|---|---|---|
+| Cold (first ever) | ~3:53 | JIT compilation |
+| Warm (MXR cached) | ~6 seconds | Load from `ORT_MIGRAPHX_MODEL_CACHE_PATH` |
+
 **`RAGPIPE_FORCE_CPU=1`** can force CPU-only mode on any platform.
 
 **`RAGPIPE_DEVICE=cpu|migraphx|cuda`** to select a specific provider.
 
-**⚠️ Startup time with MIGraphX: ~3 minutes.** Do not restart ragpipe in
-production unless critical.
+**⚠️ Cold start: ~3:53 on first boot.** Warm start (MXR cached): ~6 seconds.
+Do not restart ragpipe in production unless critical.
 
-`RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE`. An assertion at startup
-enforces this. Do not remove it.
+`RAG_TOP_K` must never exceed `MIGRAPHX_BATCH_SIZE` when MIGraphX is used (non-gfx1151).
+An assertion at startup enforces this. Do not remove it.
 
-The reranker always runs on CPU — MIGraphX compiles the MiniLM-L-6 reranker
-graph on gfx1151 but fails at inference with "Not computable:
-gpu::precompile_op". The embedder also runs on CPU on gfx1151 (auto-detected).
+The reranker always runs on CPU — MIGraphX fails at inference with
+"Not computable: gpu::precompile_op" for this model. On gfx1151, the
+embedder also runs on CPU (auto-detected).
 
 Do not attempt to switch to ROCMExecutionProvider — it will fail with ABI
-errors against ROCm 7.x and is no longer maintained by AMD. The only
-alternative is CPUExecutionProvider, which works but is significantly slower.
+errors against ROCm 7.x. CPUExecutionProvider is the fallback.
 
 ## Multi-collection routing
 
@@ -142,6 +140,8 @@ cited_chunks = [
 | Change | Impact |
 |--------|--------|
 | Drop fastembed → raw ONNX Runtime | 83% memory reduction (4.1 GB → 708 MB), 5x faster startup, ~17% faster avg query |
+| MXR pre-compilation cache | 39x startup improvement (3:53 cold → 6s warm) via `ORT_MIGRAPHX_MODEL_CACHE_PATH` |
+| CPU on gfx1151 (PR #42) | Embedder + reranker run on CPU — MIGraphX GTT on UMA APUs is slower than CPU for small models |
 | asyncpg connection pool | Native async hydration, frees thread pool worker per request |
 | LRU chunk cache (2,048 entries) | 55% faster repeated queries (eliminates Postgres round-trip on cache hit) |
 | Persistent httpx client | Saves 1-5ms/request TCP handshake overhead |
@@ -153,7 +153,7 @@ cited_chunks = [
 ## Running tests
 ```bash
 pip install '.[dev]'
-python -m pytest tests/ -v    # 97 tests
+python -m pytest tests/ -v    # 164 tests
 ruff check && ruff format --check
 ```
 
