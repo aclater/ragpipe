@@ -91,9 +91,7 @@ def reload_system_prompt() -> dict:
     }
 
 
-def format_context(
-    ranked_chunks: list[dict], docstore=None
-) -> str | tuple[str, set[tuple[str, int]]]:
+def format_context(ranked_chunks: list[dict], docstore=None) -> str | tuple[str, set[tuple[str, int]]]:
     """Format reranked chunks as context with doc_id:chunk_id references.
 
     Each chunk is labeled with its doc_id:chunk_id so the model can cite
