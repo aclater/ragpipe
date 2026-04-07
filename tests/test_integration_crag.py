@@ -8,8 +8,6 @@ Run:
     pytest tests/test_integration_crag.py -v --ragpipe-url=http://localhost:8090
 """
 
-import json
-
 import httpx
 import pytest
 
@@ -69,9 +67,7 @@ class TestCragMetadataInResponse:
         assert isinstance(meta["retrieval_attempts"], int), (
             f"retrieval_attempts should be int, got {type(meta['retrieval_attempts'])}"
         )
-        assert meta["retrieval_attempts"] >= 1, (
-            f"retrieval_attempts should be >= 1, got {meta['retrieval_attempts']}"
-        )
+        assert meta["retrieval_attempts"] >= 1, f"retrieval_attempts should be >= 1, got {meta['retrieval_attempts']}"
 
         assert "query_rewritten" in meta, "query_rewritten missing from rag_metadata"
         assert meta["query_rewritten"] is not None, "query_rewritten is null"
@@ -87,14 +83,10 @@ class TestCragMetadataInResponse:
 
         meta = data.get("rag_metadata", {})
 
-        assert meta.get("retrieval_attempts") is not None, (
-            "retrieval_attempts is null on low-confidence query"
-        )
+        assert meta.get("retrieval_attempts") is not None, "retrieval_attempts is null on low-confidence query"
         assert meta["retrieval_attempts"] >= 1
 
-        assert meta.get("query_rewritten") is not None, (
-            "query_rewritten is null on low-confidence query"
-        )
+        assert meta.get("query_rewritten") is not None, "query_rewritten is null on low-confidence query"
 
     def test_crag_rewrite_metadata_consistent(self, ragpipe_healthy):
         """When query_rewritten is true, original_query and rewritten_query
@@ -108,15 +100,9 @@ class TestCragMetadataInResponse:
         assert "query_rewritten" in meta
 
         if meta["query_rewritten"]:
-            assert meta["retrieval_attempts"] >= 2, (
-                "query_rewritten=true but retrieval_attempts < 2"
-            )
-            assert "original_query" in meta and meta["original_query"], (
-                "query_rewritten=true but original_query missing"
-            )
-            assert "rewritten_query" in meta and meta["rewritten_query"], (
-                "query_rewritten=true but rewritten_query missing"
-            )
+            assert meta["retrieval_attempts"] >= 2, "query_rewritten=true but retrieval_attempts < 2"
+            assert meta.get("original_query"), "query_rewritten=true but original_query missing"
+            assert meta.get("rewritten_query"), "query_rewritten=true but rewritten_query missing"
         else:
             assert meta["retrieval_attempts"] == 1, (
                 f"query_rewritten=false but retrieval_attempts={meta['retrieval_attempts']}"
@@ -144,9 +130,5 @@ class TestCragFieldsMultipleQueries:
         data = _chat(url, query)
 
         meta = data.get("rag_metadata", {})
-        assert meta.get("retrieval_attempts") is not None, (
-            f"retrieval_attempts is null for query: {query}"
-        )
-        assert meta.get("query_rewritten") is not None, (
-            f"query_rewritten is null for query: {query}"
-        )
+        assert meta.get("retrieval_attempts") is not None, f"retrieval_attempts is null for query: {query}"
+        assert meta.get("query_rewritten") is not None, f"query_rewritten is null for query: {query}"
