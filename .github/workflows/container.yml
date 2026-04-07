@@ -78,9 +78,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: digest
+          provenance: false
 
       - name: Generate SBOM
+        if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@v0.24.0
         with:
           image: ghcr.io/aclater/${{ github.event.repository.name }}:main${{ matrix.suffix }}
@@ -89,6 +90,7 @@ jobs:
           upload-artifact: false
 
       - name: Attest SBOM
+        if: github.event_name != 'pull_request'
         uses: actions/attest-sbom@v4.1.0
         id: attest
         with:
@@ -98,6 +100,7 @@ jobs:
           push-to-registry: true
 
       - name: Upload SBOM artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7.0.0
         with:
           name: sbom-${{ matrix.variant }}-${{ github.run_id }}
