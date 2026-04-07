@@ -1,16 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 820" font-family="system-ui, -apple-system, sans-serif" font-size="13">
   <style>
     @media (prefers-color-scheme: dark) {
       .bg { fill: #1a1a2e; }
       .box { fill: #16213e; stroke: #e2e8f0; }
       .box-highlight { fill: #1a365d; stroke: #63b3ed; }
       .box-external { fill: #1c1c1c; stroke: #718096; }
+      .box-crag { fill: #2d1f3d; stroke: #b794f4; }
+      .box-future { fill: #1c1c1c; stroke: #718096; stroke-dasharray: 6,3; }
       .text { fill: #e2e8f0; }
       .text-dim { fill: #a0aec0; }
       .text-accent { fill: #63b3ed; }
       .text-warn { fill: #f6ad55; }
+      .text-purple { fill: #b794f4; }
+      .text-green { fill: #68d391; }
       .arrow { stroke: #63b3ed; fill: #63b3ed; }
       .arrow-dim { stroke: #718096; fill: #718096; }
+      .arrow-crag { stroke: #b794f4; fill: #b794f4; }
       .label-bg { fill: #2d3748; }
       .cache-bg { fill: #2d3748; stroke: #68d391; stroke-dasharray: 4,2; }
     }
@@ -19,12 +24,17 @@
       .box { fill: #f7fafc; stroke: #2d3748; }
       .box-highlight { fill: #ebf8ff; stroke: #3182ce; }
       .box-external { fill: #f9f9f9; stroke: #a0aec0; }
+      .box-crag { fill: #faf5ff; stroke: #805ad5; }
+      .box-future { fill: #f9f9f9; stroke: #a0aec0; stroke-dasharray: 6,3; }
       .text { fill: #1a202c; }
       .text-dim { fill: #718096; }
       .text-accent { fill: #2b6cb0; }
       .text-warn { fill: #c05621; }
+      .text-purple { fill: #6b46c1; }
+      .text-green { fill: #276749; }
       .arrow { stroke: #3182ce; fill: #3182ce; }
       .arrow-dim { stroke: #a0aec0; fill: #a0aec0; }
+      .arrow-crag { stroke: #805ad5; fill: #805ad5; }
       .label-bg { fill: #edf2f7; }
       .cache-bg { fill: #f0fff4; stroke: #38a169; stroke-dasharray: 4,2; }
     }
@@ -36,131 +46,199 @@
     <marker id="ahd" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" class="arrow-dim"/>
     </marker>
+    <marker id="ahc" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" class="arrow-crag"/>
+    </marker>
   </defs>
 
-  <rect width="960" height="700" class="bg" rx="8"/>
+  <rect width="980" height="820" class="bg" rx="8"/>
 
   <!-- Title -->
-  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe — request flow</text>
-  <text x="480" y="50" text-anchor="middle" font-size="11" class="text-dim">RAG proxy with corpus-preferring grounding and citation validation</text>
+  <text x="490" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe -- request flow</text>
+  <text x="490" y="50" text-anchor="middle" font-size="11" class="text-dim">RAG proxy with CRAG corrective retrieval, dual-path streaming, and citation validation</text>
+
+  <!-- ragorchestrator (future upstream) -->
+  <rect x="130" y="64" width="200" height="36" rx="6" class="box-future"/>
+  <text x="230" y="82" text-anchor="middle" font-size="11" class="text-dim">ragorchestrator :8095</text>
+  <text x="230" y="95" text-anchor="middle" font-size="9" class="text-dim">(agentic upstream)</text>
+  <line x1="330" y1="82" x2="380" y2="82" class="arrow-dim" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#ahd)"/>
 
   <!-- Client -->
-  <rect x="370" y="64" width="220" height="36" rx="6" class="box-external"/>
-  <text x="480" y="87" text-anchor="middle" font-weight="600" class="text">Client</text>
-  <text x="480" y="87" text-anchor="middle" font-size="10" class="text-dim" dy="14">curl / Open WebUI / SDK</text>
+  <rect x="390" y="64" width="200" height="36" rx="6" class="box-external"/>
+  <text x="490" y="82" text-anchor="middle" font-weight="600" class="text">Client</text>
+  <text x="490" y="95" text-anchor="middle" font-size="9" class="text-dim">Open WebUI / SDK / curl</text>
 
-  <!-- Arrow: Client → ragpipe -->
-  <line x1="480" y1="100" x2="480" y2="126" class="arrow" stroke-width="2" marker-end="url(#ah)"/>
-  <text x="490" y="118" font-size="10" class="text-dim">POST /v1/chat/completions</text>
+  <!-- Arrow: Client -> ragpipe -->
+  <line x1="490" y1="100" x2="490" y2="128" class="arrow" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="560" y="120" font-size="10" class="text-dim">POST /v1/chat/completions</text>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
   <!-- RAGPIPE BOX -->
-  <rect x="30" y="130" width="900" height="440" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.3"/>
-  <text x="50" y="154" font-size="15" font-weight="bold" class="text-accent">ragpipe :8090</text>
+  <rect x="30" y="132" width="920" height="555" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.3"/>
+  <text x="50" y="156" font-size="15" font-weight="bold" class="text-accent">ragpipe :8090</text>
 
-  <!-- Step 1: Embed -->
-  <rect x="55" y="170" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="191" text-anchor="middle" font-weight="600" font-size="12" class="text">1. Embed query</text>
-  <text x="150" y="208" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime · bge-base-en-v1.5</text>
+  <!-- Step 1: Semantic Router -->
+  <rect x="55" y="170" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="191" text-anchor="middle" font-weight="600" font-size="12" class="text">1. Semantic router</text>
+  <text x="155" y="208" text-anchor="middle" font-size="10" class="text-dim">cosine similarity, &lt;1ms</text>
+
+  <!-- Collections label -->
+  <rect x="270" y="172" width="200" height="44" rx="3" class="label-bg"/>
+  <text x="370" y="188" text-anchor="middle" font-size="9" class="text-accent">personnel | nato | mpep | documents</text>
+  <text x="370" y="202" text-anchor="middle" font-size="9" class="text-dim">per-route: LLM, Qdrant, docstore, prompt</text>
+  <line x1="255" y1="194" x2="270" y2="194" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- Step 2: Embed query -->
+  <rect x="55" y="232" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="253" text-anchor="middle" font-weight="600" font-size="12" class="text">2. Embed query</text>
+  <text x="155" y="270" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime, gte-modernbert-base</text>
 
   <!-- Embed cache -->
-  <rect x="260" y="174" width="80" height="20" rx="3" class="cache-bg"/>
-  <text x="300" y="188" text-anchor="middle" font-size="9" class="text-accent">LRU (256)</text>
-  <line x1="245" y1="188" x2="260" y2="188" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
+  <rect x="270" y="236" width="80" height="20" rx="3" class="cache-bg"/>
+  <text x="310" y="250" text-anchor="middle" font-size="9" class="text-accent">LRU (256)</text>
+  <line x1="255" y1="250" x2="270" y2="250" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
 
-  <!-- Step 2: Search Qdrant -->
-  <rect x="55" y="232" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="253" text-anchor="middle" font-weight="600" font-size="12" class="text">2. Vector search</text>
-  <text x="150" y="270" text-anchor="middle" font-size="10" class="text-dim">Qdrant · top-K candidates</text>
+  <!-- MXR cache label -->
+  <rect x="270" y="260" width="120" height="18" rx="3" class="cache-bg"/>
+  <text x="330" y="273" text-anchor="middle" font-size="8" class="text-green">MXR cache (6s warm)</text>
 
-  <!-- Step 3: Hydrate -->
-  <rect x="55" y="294" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="315" text-anchor="middle" font-weight="600" font-size="12" class="text">3. Hydrate chunks</text>
-  <text x="150" y="332" text-anchor="middle" font-size="10" class="text-dim">asyncpg pool · native async</text>
+  <!-- Step 3: Search Qdrant -->
+  <rect x="55" y="294" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="315" text-anchor="middle" font-weight="600" font-size="12" class="text">3. Vector search</text>
+  <text x="155" y="332" text-anchor="middle" font-size="10" class="text-dim">Qdrant, top-K candidates</text>
+
+  <!-- Step 4: Hydrate -->
+  <rect x="55" y="356" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="377" text-anchor="middle" font-weight="600" font-size="12" class="text">4. Hydrate chunks</text>
+  <text x="155" y="394" text-anchor="middle" font-size="10" class="text-dim">asyncpg pool, titles + text</text>
 
   <!-- Chunk cache -->
-  <rect x="260" y="298" width="95" height="20" rx="3" class="cache-bg"/>
-  <text x="307" y="312" text-anchor="middle" font-size="9" class="text-accent">LRU (2,048)</text>
-  <line x1="245" y1="312" x2="260" y2="312" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
+  <rect x="270" y="360" width="100" height="20" rx="3" class="cache-bg"/>
+  <text x="320" y="374" text-anchor="middle" font-size="9" class="text-accent">LRU (2,048)</text>
+  <line x1="255" y1="374" x2="270" y2="374" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
 
-  <!-- Step 4: Rerank + filter -->
-  <rect x="55" y="356" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="377" text-anchor="middle" font-weight="600" font-size="12" class="text">4. Rerank + filter</text>
-  <text x="150" y="394" text-anchor="middle" font-size="10" class="text-dim">MiniLM-L-6 · min_score=-5</text>
-
-  <!-- Step 5: Inject context -->
-  <rect x="55" y="418" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="439" text-anchor="middle" font-weight="600" font-size="12" class="text">5. Inject context</text>
-  <text x="150" y="456" text-anchor="middle" font-size="10" class="text-dim">system prompt + [doc:chunk]</text>
+  <!-- Step 5: Rerank + filter -->
+  <rect x="55" y="418" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="439" text-anchor="middle" font-weight="600" font-size="12" class="text">5. Rerank + filter</text>
+  <text x="155" y="456" text-anchor="middle" font-size="10" class="text-dim">MiniLM-L-6-v2, min_score=-5</text>
 
   <!-- Arrows between left column steps -->
-  <line x1="150" y1="218" x2="150" y2="232" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
-  <line x1="150" y1="280" x2="150" y2="294" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
-  <line x1="150" y1="342" x2="150" y2="356" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
-  <line x1="150" y1="404" x2="150" y2="418" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="155" y1="218" x2="155" y2="232" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="155" y1="280" x2="155" y2="294" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="155" y1="342" x2="155" y2="356" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="155" y1="404" x2="155" y2="418" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
 
-  <!-- Arrow: Inject → Forward -->
-  <line x1="245" y1="442" x2="395" y2="442" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <!-- ════════════════════════════════════════════════ -->
+  <!-- CRAG retry loop -->
+  <rect x="280" y="418" width="220" height="80" rx="5" class="box-crag"/>
+  <text x="390" y="438" text-anchor="middle" font-weight="600" font-size="12" class="text-purple">CRAG retry</text>
+  <text x="390" y="455" text-anchor="middle" font-size="10" class="text-dim">if reranking filters all chunks:</text>
+  <text x="390" y="470" text-anchor="middle" font-size="10" class="text-purple">rewrite query via LLM (/nothink)</text>
+  <text x="390" y="485" text-anchor="middle" font-size="10" class="text-purple">re-embed, re-search, re-rerank</text>
 
-  <!-- Step 6: Forward to LLM -->
-  <rect x="400" y="418" width="190" height="48" rx="5" class="box"/>
-  <text x="495" y="439" text-anchor="middle" font-weight="600" font-size="12" class="text">6. Forward to LLM</text>
-  <text x="495" y="456" text-anchor="middle" font-size="10" class="text-dim">persistent httpx client</text>
+  <!-- Arrow: Rerank -> CRAG (conditional) -->
+  <line x1="255" y1="442" x2="280" y2="442" class="arrow-crag" stroke-width="1.5" marker-end="url(#ahc)"/>
+  <text x="268" y="434" font-size="8" class="text-purple">low</text>
+  <text x="262" y="454" font-size="8" class="text-purple">confidence</text>
 
-  <!-- Arrow: Forward → Post-process -->
-  <line x1="590" y1="442" x2="660" y2="442" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <!-- Arrow: CRAG loops back to step 2 -->
+  <path d="M 500 458 L 530 458 L 530 253 L 255 253" class="arrow-crag" stroke-width="1.5" fill="none" marker-end="url(#ahc)"/>
+  <text x="540" y="360" font-size="9" class="text-purple" transform="rotate(-90,540,360)">re-retrieve</text>
 
-  <!-- Step 7: Post-process -->
-  <rect x="665" y="356" width="240" height="120" rx="5" class="box"/>
-  <text x="785" y="377" text-anchor="middle" font-weight="600" font-size="12" class="text">7. Post-process</text>
-  <text x="785" y="397" text-anchor="middle" font-size="10" class="text-dim">Parse [doc_id:chunk_id]</text>
-  <text x="785" y="413" text-anchor="middle" font-size="10" class="text-dim">Validate vs retrieved set</text>
-  <text x="785" y="429" text-anchor="middle" font-size="10" class="text-dim">Strip invalid citations</text>
-  <text x="785" y="445" text-anchor="middle" font-size="10" class="text-dim">Classify: corpus/general/mixed</text>
-  <text x="785" y="461" text-anchor="middle" font-size="10" class="text-dim">Attach rag_metadata + audit</text>
+  <!-- ════════════════════════════════════════════════ -->
+  <!-- Step 6: Inject context -->
+  <rect x="55" y="480" width="200" height="48" rx="5" class="box"/>
+  <text x="155" y="501" text-anchor="middle" font-weight="600" font-size="12" class="text">6. Inject context</text>
+  <text x="155" y="518" text-anchor="middle" font-size="10" class="text-dim">system prompt + [doc_id:chunk_id]</text>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Arrow: Rerank -> Inject (normal path) -->
+  <line x1="155" y1="466" x2="155" y2="480" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Arrow: Inject -> Forward -->
+  <line x1="255" y1="504" x2="540" y2="504" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Step 7: Forward to LLM -->
+  <rect x="545" y="480" width="190" height="48" rx="5" class="box"/>
+  <text x="640" y="501" text-anchor="middle" font-weight="600" font-size="12" class="text">7. Forward to LLM</text>
+  <text x="640" y="518" text-anchor="middle" font-size="10" class="text-dim">persistent httpx client</text>
+
+  <!-- Streaming split -->
+  <rect x="545" y="540" width="190" height="40" rx="4" class="label-bg"/>
+  <text x="640" y="555" text-anchor="middle" font-size="10" class="text-accent">dual-path streaming</text>
+  <text x="640" y="568" text-anchor="middle" font-size="9" class="text-dim">SSE to client + accumulate for audit</text>
+  <line x1="640" y1="528" x2="640" y2="540" class="arrow" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- Arrow: Forward -> Post-process -->
+  <line x1="735" y1="504" x2="760" y2="504" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Step 8: Post-process -->
+  <rect x="765" y="408" width="170" height="140" rx="5" class="box"/>
+  <text x="850" y="428" text-anchor="middle" font-weight="600" font-size="12" class="text">8. Post-process</text>
+  <text x="850" y="448" text-anchor="middle" font-size="10" class="text-dim">Parse [doc_id:chunk_id]</text>
+  <text x="850" y="463" text-anchor="middle" font-size="10" class="text-dim">Validate vs retrieved set</text>
+  <text x="850" y="478" text-anchor="middle" font-size="10" class="text-dim">Strip invalid citations</text>
+  <text x="850" y="493" text-anchor="middle" font-size="10" class="text-dim">Classify: corpus/general/mixed</text>
+  <text x="850" y="508" text-anchor="middle" font-size="10" class="text-dim">Negative finding detection</text>
+  <text x="850" y="523" text-anchor="middle" font-size="10" class="text-dim">Attach rag_metadata v3</text>
+  <text x="850" y="538" text-anchor="middle" font-size="10" class="text-dim">cited_chunks: {id,title,source}</text>
+
+  <!-- ════════════════════════════════════════════════ -->
   <!-- External services -->
 
   <!-- Qdrant -->
-  <rect x="740" y="170" width="150" height="48" rx="5" class="box-external"/>
-  <text x="815" y="191" text-anchor="middle" font-weight="600" font-size="12" class="text">Qdrant</text>
-  <text x="815" y="208" text-anchor="middle" font-size="10" class="text-dim">:6333 · vectors only</text>
-  <line x1="245" y1="256" x2="740" y2="198" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
+  <rect x="770" y="170" width="160" height="48" rx="5" class="box-external"/>
+  <text x="850" y="191" text-anchor="middle" font-weight="600" font-size="12" class="text">Qdrant</text>
+  <text x="850" y="208" text-anchor="middle" font-size="10" class="text-dim">:6333, vectors only</text>
+  <line x1="255" y1="318" x2="770" y2="198" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
 
   <!-- Postgres -->
-  <rect x="740" y="240" width="150" height="48" rx="5" class="box-external"/>
-  <text x="815" y="261" text-anchor="middle" font-weight="600" font-size="12" class="text">Postgres</text>
-  <text x="815" y="278" text-anchor="middle" font-size="10" class="text-dim">:5432 · asyncpg pool</text>
-  <line x1="245" y1="318" x2="740" y2="268" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
+  <rect x="770" y="240" width="160" height="48" rx="5" class="box-external"/>
+  <text x="850" y="261" text-anchor="middle" font-weight="600" font-size="12" class="text">Postgres</text>
+  <text x="850" y="278" text-anchor="middle" font-size="10" class="text-dim">:5432, chunks + titles</text>
+  <line x1="255" y1="380" x2="770" y2="268" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
 
   <!-- LLM -->
-  <rect x="400" y="500" width="190" height="48" rx="5" class="box-external"/>
-  <text x="495" y="521" text-anchor="middle" font-weight="600" font-size="12" class="text">LLM</text>
-  <text x="495" y="538" text-anchor="middle" font-size="10" class="text-dim">:8080 · llama-server</text>
-  <line x1="495" y1="466" x2="495" y2="500" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
+  <rect x="545" y="594" width="190" height="48" rx="5" class="box-external"/>
+  <text x="640" y="615" text-anchor="middle" font-weight="600" font-size="12" class="text">LLM (Qwen3-32B)</text>
+  <text x="640" y="632" text-anchor="middle" font-size="10" class="text-dim">:8080, Q4_K_M, ~19GB GTT</text>
+  <line x1="640" y1="580" x2="640" y2="594" class="arrow-dim" stroke-width="1.5" marker-end="url(#ahd)"/>
 
-  <!-- Admin endpoint -->
-  <rect x="55" y="490" width="190" height="48" rx="5" class="box"/>
-  <text x="150" y="511" text-anchor="middle" font-weight="600" font-size="12" class="text">Admin API</text>
-  <text x="150" y="528" text-anchor="middle" font-size="10" class="text-dim">POST /admin/reload-prompt</text>
+  <!-- Prometheus / ragwatch -->
+  <rect x="55" y="594" width="180" height="40" rx="5" class="box-external"/>
+  <text x="145" y="612" text-anchor="middle" font-size="11" class="text">ragwatch :9090</text>
+  <text x="145" y="626" text-anchor="middle" font-size="9" class="text-dim">Prometheus metrics</text>
 
-  <!-- Prompt file -->
-  <rect x="260" y="494" width="110" height="20" rx="3" class="label-bg"/>
-  <text x="315" y="508" text-anchor="middle" font-size="9" class="text-dim">prompt file (hot-reload)</text>
-  <line x1="245" y1="514" x2="260" y2="508" class="arrow-dim" stroke-width="1" stroke-dasharray="3,2"/>
+  <!-- Admin endpoints -->
+  <rect x="260" y="594" width="240" height="40" rx="5" class="box"/>
+  <text x="380" y="612" text-anchor="middle" font-weight="600" font-size="11" class="text">Admin API</text>
+  <text x="380" y="626" text-anchor="middle" font-size="9" class="text-dim">POST /admin/reload-routes | reload-prompt</text>
 
   <!-- Response arrow back up -->
-  <line x1="785" y1="356" x2="785" y2="130" class="arrow" stroke-width="1.5"/>
-  <line x1="785" y1="130" x2="510" y2="100" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
-  <text x="800" y="150" font-size="10" class="text-dim">Response + rag_metadata</text>
+  <line x1="850" y1="408" x2="850" y2="135" class="arrow" stroke-width="1.5"/>
+  <line x1="850" y1="135" x2="520" y2="100" class="arrow" stroke-width="1.5" marker-end="url(#ah)"/>
+  <text x="870" y="155" font-size="10" class="text-dim">Response + rag_metadata</text>
 
   <!-- Thread pool indicator -->
-  <rect x="55" y="548" width="300" height="16" rx="3" class="label-bg"/>
-  <text x="205" y="560" text-anchor="middle" font-size="9" class="text-dim">ThreadPoolExecutor (4 workers) · embed + rerank | asyncpg · hydrate</text>
+  <rect x="55" y="650" width="340" height="16" rx="3" class="label-bg"/>
+  <text x="225" y="662" text-anchor="middle" font-size="9" class="text-dim">ThreadPoolExecutor (4 workers): embed + rerank | asyncpg: hydrate (native async)</text>
 
-  <!-- Footer: specs -->
-  <text x="480" y="600" text-anchor="middle" font-size="11" class="text-dim">ONNX Runtime (CPU) · 708 MB RSS · 4 threads/model · embed cache (256) · chunk cache (2,048)</text>
-  <text x="480" y="618" text-anchor="middle" font-size="11" class="text-dim">asyncpg pool (2-8) · persistent httpx · reranker min_score=-5 · hot-reloadable prompt</text>
-  <text x="480" y="640" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0</text>
+  <!-- Footer -->
+  <text x="490" y="700" text-anchor="middle" font-size="11" class="text-dim">ONNX Runtime (CPU on gfx1151 / MIGraphX on dGPU) | asyncpg pool (2-8) | persistent httpx | hot-reloadable prompt + routes</text>
+  <text x="490" y="718" text-anchor="middle" font-size="11" class="text-dim">Citation v3: cited_chunks as {id, title, source} objects | Grounding: corpus/general/mixed with negative finding detection</text>
+  <text x="490" y="740" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe, AGPL-3.0</text>
+
+  <!-- Legend -->
+  <rect x="55" y="756" width="350" height="52" rx="4" class="label-bg"/>
+  <text x="70" y="772" font-size="10" font-weight="600" class="text">Legend:</text>
+  <line x1="120" y1="769" x2="150" y2="769" class="arrow" stroke-width="2"/>
+  <text x="155" y="773" font-size="9" class="text-dim">data flow</text>
+  <line x1="210" y1="769" x2="240" y2="769" class="arrow-crag" stroke-width="2"/>
+  <text x="245" y="773" font-size="9" class="text-purple">CRAG retry</text>
+  <line x1="310" y1="769" x2="340" y2="769" class="arrow-dim" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="345" y="773" font-size="9" class="text-dim">future</text>
+  <rect x="70" y="780" width="14" height="14" rx="2" class="cache-bg"/>
+  <text x="90" y="792" font-size="9" class="text-green">cache layer</text>
+  <rect x="165" y="780" width="14" height="14" rx="2" class="box-crag"/>
+  <text x="185" y="792" font-size="9" class="text-purple">corrective RAG</text>
+  <rect x="280" y="780" width="14" height="14" rx="2" class="box-external"/>
+  <text x="300" y="792" font-size="9" class="text-dim">external service</text>
 </svg>
