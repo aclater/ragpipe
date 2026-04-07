@@ -53,6 +53,9 @@ skips = ["B101"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "integration: live integration tests requiring a running ragpipe instance",
+]
 
 [tool.coverage.run]
 source = ["ragpipe"]
