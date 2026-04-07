@@ -31,6 +31,8 @@ from ragpipe.grounding import (
     build_system_message,
     determine_corpus_coverage,
     format_context,
+    format_footnotes,
+    format_references_section,
     log_audit,
     parse_citations,
     query_hash,
@@ -783,6 +785,12 @@ def process_response(response_data: dict, ctx: dict) -> tuple[dict, dict]:
         metadata["retrieval_attempts"] = crag.get("retrieval_attempts", 1)
         metadata["query_rewritten"] = False
 
+    # Replace raw [doc_id:chunk_id] with numbered footnotes and append references
+    content, footnotes = format_footnotes(content, valid_citations, metadata.get("cited_chunks", []))
+    if footnotes:
+        response_data["choices"][0]["message"]["content"] = content
+        metadata["footnotes"] = footnotes
+
     # Attach metadata to the response
     response_data["rag_metadata"] = metadata
 
@@ -861,6 +869,11 @@ def _validate_streamed_response(content: str, ctx: dict) -> dict:
     else:
         metadata["retrieval_attempts"] = crag.get("retrieval_attempts", 1)
         metadata["query_rewritten"] = False
+
+    # Compute footnotes for streaming — references section will be appended by caller
+    _, footnotes = format_footnotes(content, valid_citations, metadata.get("cited_chunks", []))
+    if footnotes:
+        metadata["footnotes"] = footnotes
 
     log_audit(
         q_hash=query_hash(user_query),
@@ -1025,6 +1038,14 @@ async def chat_completions(request: Request):
             if full_content:
                 metadata = _validate_streamed_response(full_content, retrieval_ctx)
                 if metadata:
+                    # Emit references section as final content chunk before rag_metadata
+                    footnotes = metadata.get("footnotes", [])
+                    if footnotes:
+                        refs_text = format_references_section(footnotes)
+                        refs_chunk = {
+                            "choices": [{"delta": {"content": refs_text}, "index": 0, "finish_reason": None}],
+                        }
+                        yield f"data: {json.dumps(refs_chunk)}\n\n"
                     # Emit rag_metadata as SSE event before [DONE]
                     yield f"data: {json.dumps({'rag_metadata': metadata})}\n\n"
 

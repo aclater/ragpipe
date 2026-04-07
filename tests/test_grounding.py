@@ -360,6 +360,93 @@ def test_metadata_dedup_preserves_insertion_order():
     assert ids == ["b:1", "a:0", "c:3"]
 
 
+# ── Footnote formatting ──────────────────────────────────────────────────────
+
+
+def test_format_footnotes_basic():
+    """Footnotes replace raw UUIDs with [N] and append references."""
+    mod = _reload()
+    content = "Adam is an architect [abc-123:2]. He works at Red Hat [def-456:0]."
+    valid = [("abc-123", 2), ("def-456", 0)]
+    cited_chunks = [
+        {"id": "abc-123:2", "title": "Resume", "source": "gdrive://resume.pdf"},
+        {"id": "def-456:0", "title": "Org Chart", "source": "gdrive://org.pdf"},
+    ]
+    rewritten, footnotes = mod.format_footnotes(content, valid, cited_chunks)
+
+    assert "[1]" in rewritten
+    assert "[2]" in rewritten
+    assert "[abc-123:2]" not in rewritten
+    assert "---" in rewritten
+    assert "**References**" in rewritten
+    assert "1. Resume (gdrive://resume.pdf)" in rewritten
+    assert "2. Org Chart (gdrive://org.pdf)" in rewritten
+    assert len(footnotes) == 2
+    assert footnotes[0]["number"] == 1
+    assert footnotes[0]["doc_id"] == "abc-123"
+    assert footnotes[1]["number"] == 2
+
+
+def test_format_footnotes_deduplicates():
+    """Same doc_id:chunk_id appearing twice gets the same footnote number."""
+    mod = _reload()
+    content = "Fact A [abc:1]. Fact B [def:0]. Fact C [abc:1]."
+    valid = [("abc", 1), ("def", 0), ("abc", 1)]
+    cited_chunks = [
+        {"id": "abc:1", "title": "Doc A", "source": "s3://a"},
+        {"id": "def:0", "title": "Doc D", "source": "s3://d"},
+    ]
+    rewritten, footnotes = mod.format_footnotes(content, valid, cited_chunks)
+
+    # Two unique footnotes, not three
+    assert len(footnotes) == 2
+    # Both [abc:1] should become [1]
+    assert rewritten.count("[1]") == 2
+    assert rewritten.count("[2]") == 1
+
+
+def test_format_footnotes_empty():
+    """No citations returns content unchanged and empty footnotes."""
+    mod = _reload()
+    content = "No citations here."
+    rewritten, footnotes = mod.format_footnotes(content, [], [])
+    assert rewritten == content
+    assert footnotes == []
+
+
+def test_format_footnotes_preserves_unvalidated():
+    """Citations not in valid_citations are left as-is."""
+    mod = _reload()
+    content = "Valid [abc:1]. Invalid [xyz:9]."
+    valid = [("abc", 1)]
+    cited_chunks = [{"id": "abc:1", "title": "Doc", "source": "src"}]
+    rewritten, footnotes = mod.format_footnotes(content, valid, cited_chunks)
+
+    assert "[1]" in rewritten
+    assert "[xyz:9]" in rewritten  # Not in valid_citations, left alone
+    assert len(footnotes) == 1
+
+
+def test_format_references_section():
+    """format_references_section builds the references block."""
+    mod = _reload()
+    footnotes = [
+        {"number": 1, "doc_id": "a", "chunk_id": 0, "title": "Alpha", "source": "s://a"},
+        {"number": 2, "doc_id": "b", "chunk_id": 1, "title": "Beta", "source": "s://b"},
+    ]
+    refs = mod.format_references_section(footnotes)
+    assert "---" in refs
+    assert "**References**" in refs
+    assert "1. Alpha (s://a)" in refs
+    assert "2. Beta (s://b)" in refs
+
+
+def test_format_references_section_empty():
+    """No footnotes returns empty string."""
+    mod = _reload()
+    assert mod.format_references_section([]) == ""
+
+
 # ── Audit logging ────────────────────────────────────────────────────────────
 
 

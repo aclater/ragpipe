@@ -390,6 +390,96 @@ def build_metadata(
     }
 
 
+# ── Footnote formatting ──────────────────────────────────────────────────────
+
+
+def format_footnotes(
+    content: str,
+    valid_citations: list[tuple[str, int]],
+    cited_chunks: list[dict],
+) -> tuple[str, list[dict]]:
+    """Replace [doc_id:chunk_id] markers with numbered footnotes and append references.
+
+    Args:
+        content: LLM response text with raw [doc_id:chunk_id] markers.
+        valid_citations: List of (doc_id, chunk_id) tuples that passed validation.
+        cited_chunks: Deduplicated list of {"id", "title", "source"} dicts from build_metadata.
+
+    Returns:
+        (rewritten_content, footnotes) where:
+        - rewritten_content has [N] instead of [doc_id:chunk_id] and a References section
+        - footnotes is a list of {"number", "doc_id", "chunk_id", "title", "source"} dicts
+    """
+    if not valid_citations or not cited_chunks:
+        return content, []
+
+    # Build a lookup from "doc_id:chunk_id" → chunk metadata
+    chunk_lookup: dict[str, dict] = {}
+    for chunk in cited_chunks:
+        chunk_lookup[chunk["id"]] = chunk
+
+    # Assign footnote numbers: deduplicate by (doc_id, chunk_id), preserve first-occurrence order
+    footnote_map: dict[str, int] = {}  # "doc_id:chunk_id" → footnote number
+    footnotes: list[dict] = []
+
+    for doc_id, chunk_id in valid_citations:
+        key = f"{doc_id}:{chunk_id}"
+        if key not in footnote_map:
+            num = len(footnotes) + 1
+            footnote_map[key] = num
+            meta = chunk_lookup.get(key, {})
+            footnotes.append(
+                {
+                    "number": num,
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_id,
+                    "title": meta.get("title", ""),
+                    "source": meta.get("source", ""),
+                }
+            )
+
+    # Replace each [doc_id:chunk_id] in content with [N]
+    def _replace_citation(match):
+        doc_id = match.group(1)
+        chunk_id = int(match.group(2))
+        key = f"{doc_id}:{chunk_id}"
+        num = footnote_map.get(key)
+        if num is not None:
+            return f"[{num}]"
+        return match.group(0)  # Leave unrecognized citations as-is
+
+    rewritten = _CITATION_PATTERN.sub(_replace_citation, content)
+
+    # Append references section
+    if footnotes:
+        refs = "\n\n---\n**References**"
+        for fn in footnotes:
+            title = fn["title"] or "Untitled"
+            source = fn["source"] or ""
+            if source:
+                refs += f"\n{fn['number']}. {title} ({source})"
+            else:
+                refs += f"\n{fn['number']}. {title}"
+        rewritten += refs
+
+    return rewritten, footnotes
+
+
+def format_references_section(footnotes: list[dict]) -> str:
+    """Build just the references section text (for streaming append)."""
+    if not footnotes:
+        return ""
+    refs = "\n\n---\n**References**"
+    for fn in footnotes:
+        title = fn["title"] or "Untitled"
+        source = fn["source"] or ""
+        if source:
+            refs += f"\n{fn['number']}. {title} ({source})"
+        else:
+            refs += f"\n{fn['number']}. {title}"
+    return refs
+
+
 # ── Audit logging ────────────────────────────────────────────────────────────
 # Never logs query text, response text, or document content.
 # Only logs hashes, IDs, scores, and classification metadata.
