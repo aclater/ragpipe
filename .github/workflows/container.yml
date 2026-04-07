@@ -91,6 +91,7 @@ jobs:
 
       - name: Attest SBOM
         if: github.event_name != 'pull_request'
+        continue-on-error: true  # ROCm SBOM exceeds 16 MiB attestation limit (#65)
         uses: actions/attest@v4.1.0
         id: attest
         with:
