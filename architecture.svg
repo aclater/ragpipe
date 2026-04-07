@@ -141,7 +141,7 @@
   <text x="262" y="454" font-size="8" class="text-purple">confidence</text>
 
   <!-- Arrow: CRAG loops back to step 2 -->
-  <path d="M 500 458 L 530 458 L 530 253 L 255 253" class="arrow-crag" stroke-width="1.5" fill="none" marker-end="url(#ahc)"/>
+  <path d="M 500 458 L 530 458 L 530 253 L 255 253" class="arrow-crag" stroke-width="1.5" style="fill:none" marker-end="url(#ahc)"/>
   <text x="540" y="360" font-size="9" class="text-purple" transform="rotate(-90,540,360)">re-retrieve</text>
 
   <!-- ════════════════════════════════════════════════ -->
