@@ -46,7 +46,7 @@ All configuration is via environment variables with sensible defaults.
 |----------|---------|-------------|
 | `RAGPIPE_SYSTEM_PROMPT_FILE` | — | Path to custom system prompt file (takes precedence) |
 | `RAGPIPE_SYSTEM_PROMPT` | — | Inline custom system prompt text |
-| `THINKING_BUDGET` | `1024` | Token budget for model reasoning |
+| `RAGPIPE_MAX_COMPLETION_TOKENS` | `1024` | Default max completion tokens injected when the client does not specify `max_tokens` or `max_completion_tokens`. Prevents runaway generation from monopolising inference slots |
 
 If neither prompt variable is set, ragpipe uses a built-in corpus-preferring grounding prompt that instructs the model to cite documents as `[doc_id:chunk_id]` and prefix general knowledge with `⚠️ Not in corpus:`.
 

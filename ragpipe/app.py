@@ -106,9 +106,10 @@ TOP_K = int(os.environ.get("RAG_TOP_K", "20"))
 QDRANT_SCORE_THRESHOLD = float(os.environ.get("QDRANT_SCORE_THRESHOLD", "0.3"))
 PROXY_PORT = int(os.environ.get("RAG_PROXY_PORT", "8090"))
 
-# Thinking budget — allows the model to reason across retrieved chunks
-# and general knowledge without unconstrained latency
-THINKING_BUDGET = int(os.environ.get("THINKING_BUDGET", "1024"))
+# Default cap on completion tokens for RAG responses.  Grounded answers
+# rarely exceed 500 tokens; 1024 keeps headroom while preventing a single
+# runaway request from monopolising an inference slot for minutes.
+DEFAULT_MAX_COMPLETION_TOKENS = int(os.environ.get("RAGPIPE_MAX_COMPLETION_TOKENS", "1024"))
 
 # ── Globals initialized at startup ───────────────────────────────────────────
 
@@ -303,9 +304,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         log.warning("Reranker warm-up failed — will load on first request")
 
     log.info(
-        "Ragpipe ready — forwarding to %s (thinking_budget=%d, embed_cache=%d, qdrant_cache=%d, score_threshold=%.2f)",
+        "Ragpipe ready — forwarding to %s (max_tokens=%d, embed=%d, qdrant=%d, threshold=%.2f)",
         MODEL_URL,
-        THINKING_BUDGET,
+        DEFAULT_MAX_COMPLETION_TOKENS,
         EMBED_CACHE_SIZE,
         QDRANT_CACHE_SIZE,
         QDRANT_SCORE_THRESHOLD,
@@ -692,7 +693,7 @@ async def process_chat_request(body: dict, *, pipeline=None) -> tuple[dict, dict
     # the model needs without chain-of-thought.
     body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
     if "max_tokens" not in body and "max_completion_tokens" not in body:
-        body["max_completion_tokens"] = 4096
+        body["max_completion_tokens"] = DEFAULT_MAX_COMPLETION_TOKENS
 
     return body, {
         "ranked": ranked,
