@@ -14,6 +14,7 @@ Known issues:
 """
 
 import os
+import re
 
 import httpx
 import pytest
@@ -121,6 +122,7 @@ def test_rag_metadata_has_required_fields(chat):
     assert "grounding" in meta
     assert "cited_chunks" in meta
     assert "corpus_coverage" in meta
+    assert meta["corpus_coverage"] is not None
 
 
 def test_grounding_is_valid_value(chat):
@@ -174,12 +176,31 @@ def test_crag_fires_on_vague_query(chat):
     assert attempts is not None and attempts >= 2, f"Expected >= 2 attempts on vague query, got {attempts}"
 
 
+@pytest.mark.xfail(reason="Bug: CRAG not working — issue #62", strict=False)
+def test_rewritten_query_present_when_rewritten(chat):
+    data = chat("Tell me about patents")
+    meta = data.get("rag_metadata", {})
+    if meta.get("query_rewritten"):
+        assert meta.get("rewritten_query"), "rewritten_query must be non-empty when query_rewritten=True"
+
+
+@pytest.mark.xfail(reason="Bug: CRAG not working — issue #62", strict=False)
+def test_original_query_preserved(chat):
+    original = "Tell me about patents"
+    data = chat(original)
+    meta = data.get("rag_metadata", {})
+    if meta.get("query_rewritten"):
+        actual = meta.get("original_query")
+        assert actual == original, f"Expected original_query={original!r}, got {actual!r}"
+
+
 # ── Citation format ────────────────────────────────────────────────────────────
 
 
-def test_citations_format_correct(chat):
+def test_citations_in_correct_format(chat):
     data = chat("What is a patent?")
     cited = data.get("rag_metadata", {}).get("cited_chunks", [])
+    assert len(cited) > 0, "Expected cited_chunks to be non-empty for corpus query"
     for chunk in cited:
         chunk_id = chunk.get("id", "")
         assert ":" in chunk_id, f"Expected doc_id:chunk_id format, got {chunk_id}"
@@ -205,6 +226,16 @@ def test_cited_chunks_have_source(chat):
     if cited:
         for chunk in cited:
             assert "source" in chunk, f"Chunk missing source: {chunk}"
+
+
+def test_no_hallucinated_citations(chat):
+    data = chat("What is a patent?")
+    cited_ids = {chunk["id"] for chunk in data.get("rag_metadata", {}).get("cited_chunks", [])}
+    assert len(cited_ids) > 0, "Need cited chunks to verify no hallucination"
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    cited_in_text = re.findall(r"\[[a-f0-9-]+:\d+\]", content)
+    for cit in cited_in_text:
+        assert cit[1:-1] in cited_ids, f"Citation {cit} not in cited_chunks — possible hallucination"
 
 
 # ── Collection routing ─────────────────────────────────────────────────────────
@@ -305,7 +336,7 @@ def test_empty_messages_returns_400(ragpipe_url):
     assert resp.status_code in (400, 422)
 
 
-def test_missing_model_still_works(ragpipe_url):
+def test_missing_model_uses_default(ragpipe_url):
     payload = {"messages": [{"role": "user", "content": "hi"}], "stream": False}
     resp = requests.post(
         f"{ragpipe_url}/v1/chat/completions",
