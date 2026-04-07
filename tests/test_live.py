@@ -47,11 +47,11 @@ def ragpipe_url():
 
 @pytest.fixture
 def chat(ragpipe_url):
-    def _chat(content, stream=False, **kwargs):
+    def _chat(content, **kwargs):
         payload = {
             "model": kwargs.get("model", "default"),
             "messages": [{"role": "user", "content": content}],
-            "stream": stream,
+            "stream": False,
         }
         r = requests.post(
             f"{ragpipe_url}/v1/chat/completions",
@@ -187,7 +187,7 @@ def test_citations_format_correct(chat):
         assert len(parts) == 2, f"Expected doc_id:chunk_id format, got {chunk_id}"
         doc_id, cid = parts
         assert doc_id, f"Empty doc_id in {chunk_id}"
-        assert cid.isdigit() or int(cid) >= 0, f"Invalid chunk_id in {chunk_id}"
+        assert cid.isdigit(), f"Invalid chunk_id (expected numeric) in {chunk_id}"
 
 
 def test_cited_chunks_have_title(chat):
