@@ -91,12 +91,13 @@ jobs:
 
       - name: Attest SBOM
         if: github.event_name != 'pull_request'
-        uses: actions/attest-sbom@v4.1.0
+        uses: actions/attest@v4.1.0
         id: attest
         with:
           subject-name: ghcr.io/aclater/${{ github.event.repository.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: sbom.spdx.json
+          predicate-type: https://spdx.dev/Document
+          predicate-path: sbom.spdx.json
           push-to-registry: true
 
       - name: Upload SBOM artifact
