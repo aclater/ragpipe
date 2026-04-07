@@ -20,9 +20,10 @@ What makes it different: ragpipe classifies queries semantically and routes them
 3. **Search** the route's Qdrant collection for top-K candidate vectors
 4. **Hydrate** chunk text from the route's Postgres document store (async, cached), including title extraction per source
 5. **Rerank** with cross-encoder (ONNX Runtime, MiniLM-L-6-v2), filter below min score
-6. **Inject** the route's system prompt + context with `[doc_id:chunk_id]` labels
-7. **Forward** to the route's LLM (streaming or non-streaming)
-8. **Post-process**: parse citations, validate, classify grounding, attach `rag_metadata`, emit audit log
+6. **Correct** — CRAG: if reranking filters all chunks (low confidence), rewrite the query via LLM and retry retrieval once
+7. **Inject** the route's system prompt + context with `[doc_id:chunk_id]` labels
+8. **Forward** to the route's LLM (streaming or non-streaming)
+9. **Post-process**: parse citations, validate, classify grounding, attach `rag_metadata`, emit audit log
 
 Without a routes config (`RAGPIPE_ROUTES_FILE` unset), ragpipe operates as a single-pipeline proxy — fully backward compatible.
 
@@ -232,11 +233,27 @@ Non-streaming responses include a `rag_metadata` field:
         {"id": "abc-123:0", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"},
         {"id": "abc-123:1", "title": "Q3 Red Hat Strategy", "source": "gdrive://filename.pdf"}
     ],
-    "corpus_coverage": "full"
+    "corpus_coverage": "full",
+    "retrieval_attempts": 1,
+    "query_rewritten": false
 }
 ```
 
 **`cited_chunks` format (v3+):** Each entry is an object with `id` (doc_id:chunk_index), `title` (extracted title for the source), and `source` (document URI). The flat string format from v2 is no longer used.
+
+**CRAG fields:** When Corrective RAG rewrites the query due to low retrieval confidence, `query_rewritten` is `true` and the metadata includes `original_query` and `rewritten_query`:
+
+```json
+{
+    "grounding": "corpus",
+    "cited_chunks": [...],
+    "corpus_coverage": "full",
+    "retrieval_attempts": 2,
+    "query_rewritten": true,
+    "original_query": "What does the patent law say about software?",
+    "rewritten_query": "What patent law covers software systems?"
+}
+```
 
 ```python
 # Extract chunk IDs for validation
