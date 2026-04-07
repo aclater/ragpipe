@@ -1,20 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="system-ui, -apple-system, sans-serif" font-size="13">
   <style>
     @media (prefers-color-scheme: dark) {
       .bg { fill: #1a1a2e; }
       .box { fill: #16213e; stroke: #e2e8f0; }
       .box-highlight { fill: #1a365d; stroke: #63b3ed; }
       .box-external { fill: #1c1c1c; stroke: #718096; }
-      .box-host { fill: none; stroke: #4a5568; stroke-dasharray: 6,3; }
+      .box-future { fill: #1c1c1c; stroke: #718096; stroke-dasharray: 6,3; }
+      .box-collection { fill: #1f2d1f; stroke: #68d391; }
       .text { fill: #e2e8f0; }
       .text-dim { fill: #a0aec0; }
       .text-accent { fill: #63b3ed; }
       .text-green { fill: #68d391; }
       .text-orange { fill: #f6ad55; }
+      .text-pink { fill: #f687b3; }
+      .text-cyan { fill: #76e4f7; }
       .arrow { stroke: #63b3ed; fill: #63b3ed; }
       .arrow-dim { stroke: #718096; fill: #718096; }
       .arrow-green { stroke: #68d391; fill: #68d391; }
       .arrow-orange { stroke: #f6ad55; fill: #f6ad55; }
+      .arrow-pink { stroke: #f687b3; fill: #f687b3; }
+      .arrow-cyan { stroke: #76e4f7; fill: #76e4f7; }
       .label-bg { fill: #2d3748; }
     }
     @media (prefers-color-scheme: light) {
@@ -22,16 +27,21 @@
       .box { fill: #f7fafc; stroke: #2d3748; }
       .box-highlight { fill: #ebf8ff; stroke: #3182ce; }
       .box-external { fill: #f9f9f9; stroke: #a0aec0; }
-      .box-host { fill: none; stroke: #cbd5e0; stroke-dasharray: 6,3; }
+      .box-future { fill: #f9f9f9; stroke: #a0aec0; stroke-dasharray: 6,3; }
+      .box-collection { fill: #f0fff4; stroke: #38a169; }
       .text { fill: #1a202c; }
       .text-dim { fill: #718096; }
       .text-accent { fill: #2b6cb0; }
       .text-green { fill: #276749; }
       .text-orange { fill: #c05621; }
+      .text-pink { fill: #97266d; }
+      .text-cyan { fill: #0987a0; }
       .arrow { stroke: #3182ce; fill: #3182ce; }
       .arrow-dim { stroke: #a0aec0; fill: #a0aec0; }
       .arrow-green { stroke: #38a169; fill: #38a169; }
       .arrow-orange { stroke: #dd6b20; fill: #dd6b20; }
+      .arrow-pink { stroke: #d53f8c; fill: #d53f8c; }
+      .arrow-cyan { stroke: #0987a0; fill: #0987a0; }
       .label-bg { fill: #edf2f7; }
     }
   </style>
@@ -39,126 +49,141 @@
     <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow"/></marker>
     <marker id="ahg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-green"/></marker>
     <marker id="aho" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-orange"/></marker>
+    <marker id="ahp" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-pink"/></marker>
+    <marker id="ahc" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-cyan"/></marker>
     <marker id="ahd" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="arrow-dim"/></marker>
   </defs>
 
-  <rect width="960" height="580" class="bg" rx="8"/>
+  <rect width="960" height="620" class="bg" rx="8"/>
 
   <!-- Title -->
-  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe — semantic routing</text>
-  <text x="480" y="50" text-anchor="middle" font-size="11" class="text-dim">Multi-LLM, multi-RAG, cross-host query routing with data classification isolation</text>
+  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" class="text">ragpipe -- semantic routing</text>
+  <text x="480" y="50" text-anchor="middle" font-size="11" class="text-dim">4 collections with per-route LLM, Qdrant, docstore, and system prompt</text>
+
+  <!-- ragorchestrator (future) -->
+  <rect x="100" y="64" width="200" height="36" rx="6" class="box-future"/>
+  <text x="200" y="82" text-anchor="middle" font-size="11" class="text-dim">ragorchestrator :8095</text>
+  <text x="200" y="95" text-anchor="middle" font-size="9" class="text-dim">(agentic upstream)</text>
+  <line x1="300" y1="82" x2="370" y2="82" class="arrow-dim" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#ahd)"/>
 
   <!-- Client -->
   <rect x="380" y="64" width="200" height="36" rx="6" class="box-external"/>
   <text x="480" y="87" text-anchor="middle" font-weight="600" class="text">Client</text>
 
-  <!-- Arrow: Client → Router -->
+  <!-- Arrow: Client -> Router -->
   <line x1="480" y1="100" x2="480" y2="130" class="arrow" stroke-width="2" marker-end="url(#ah)"/>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
   <!-- RAGPIPE ROUTER -->
-  <rect x="300" y="134" width="360" height="70" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.4"/>
+  <rect x="280" y="134" width="400" height="80" rx="8" class="box-highlight" stroke-width="2" fill-opacity="0.4"/>
   <text x="480" y="158" text-anchor="middle" font-weight="bold" font-size="14" class="text-accent">Semantic Router</text>
-  <text x="480" y="176" text-anchor="middle" font-size="10" class="text-dim">cosine similarity on pre-embedded examples · &lt;1ms</text>
-  <text x="480" y="192" text-anchor="middle" font-size="10" class="text-dim">RAGPIPE_ROUTES_FILE · threshold · fallback route</text>
+  <text x="480" y="176" text-anchor="middle" font-size="10" class="text-dim">cosine similarity on pre-embedded examples, &lt;1ms</text>
+  <text x="480" y="192" text-anchor="middle" font-size="10" class="text-dim">RAGPIPE_ROUTES_FILE, hot-reload via POST /admin/reload-routes</text>
+  <text x="480" y="204" text-anchor="middle" font-size="10" class="text-dim">threshold-based, with fallback route</text>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- PRIMARY HOST BOX -->
-  <rect x="30" y="240" width="430" height="310" rx="8" class="box-host"/>
-  <text x="50" y="262" font-size="13" font-weight="bold" class="text-green">host-a (primary)</text>
-  <text x="50" y="278" font-size="10" class="text-dim">AMD Ryzen AI Max+ 395 · ROCm · 128 GB</text>
+  <!-- ════════════════════════════════════════ -->
+  <!-- 4 ROUTE COLUMNS -->
 
-  <!-- Analysis route -->
-  <rect x="55" y="295" width="185" height="68" rx="5" class="box"/>
-  <text x="147" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">analysis</text>
-  <text x="147" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-35B-A3B</text>
-  <text x="147" y="349" text-anchor="middle" font-size="10" class="text-dim">Complex queries · top_k=40</text>
+  <!-- Route: personnel -->
+  <rect x="30" y="260" width="210" height="230" rx="6" class="box"/>
+  <text x="135" y="282" text-anchor="middle" font-weight="bold" font-size="13" class="text-green">personnel</text>
+  <text x="135" y="300" text-anchor="middle" font-size="10" class="text-dim">PII-sensitive queries</text>
 
-  <!-- Personnel route -->
-  <rect x="255" y="295" width="185" height="68" rx="5" class="box"/>
-  <text x="347" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">personnel</text>
-  <text x="347" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-35B-A3B</text>
-  <text x="347" y="349" text-anchor="middle" font-size="10" class="text-dim">Data stays local · top_k=20</text>
+  <rect x="45" y="312" width="180" height="22" rx="3" class="box-collection"/>
+  <text x="135" y="327" text-anchor="middle" font-size="10" class="text-green">Qdrant: personnel</text>
 
-  <!-- Primary host services -->
-  <rect x="55" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="115" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
-  <text x="115" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
+  <rect x="45" y="340" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="135" y="355" text-anchor="middle" font-size="10" class="text-dim">Postgres: personnel chunks</text>
 
-  <rect x="190" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="250" y="405" text-anchor="middle" font-size="11" class="text">Postgres :5432</text>
-  <text x="250" y="418" text-anchor="middle" font-size="9" class="text-dim">chunks</text>
+  <rect x="45" y="368" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="135" y="383" text-anchor="middle" font-size="10" class="text-dim">LLM :8080 Qwen3-32B</text>
 
-  <rect x="325" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="385" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
-  <text x="385" y="418" text-anchor="middle" font-size="9" class="text-dim">35B-A3B · ROCm</text>
+  <rect x="45" y="396" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="135" y="411" text-anchor="middle" font-size="9" class="text-dim">top_k=20, min_score=-5</text>
 
-  <!-- Primary ragpipe label -->
-  <rect x="55" y="445" width="390" height="24" rx="3" class="label-bg"/>
-  <text x="250" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · embedder · reranker · chunk cache · asyncpg pool</text>
+  <rect x="45" y="424" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="135" y="439" text-anchor="middle" font-size="9" class="text-dim">data stays local</text>
 
-  <!-- Arrows: Router → primary routes -->
-  <line x1="420" y1="204" x2="147" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
-  <line x1="480" y1="204" x2="347" y2="295" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
+  <text x="135" y="475" text-anchor="middle" font-size="10" class="text-green">F=1.000</text>
 
-  <!-- Arrows: Routes → Services -->
-  <line x1="147" y1="363" x2="115" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="147" y1="363" x2="250" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="147" y1="363" x2="385" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="347" y1="363" x2="115" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="347" y1="363" x2="250" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="347" y1="363" x2="385" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <line x1="380" y1="214" x2="135" y2="260" class="arrow-green" stroke-width="1.5" marker-end="url(#ahg)"/>
 
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- SECONDARY HOST BOX -->
-  <rect x="500" y="240" width="430" height="310" rx="8" class="box-host"/>
-  <text x="520" y="262" font-size="13" font-weight="bold" class="text-orange">host-b (secondary)</text>
-  <text x="520" y="278" font-size="10" class="text-dim">NVIDIA RTX 4070 Ti · CUDA · 125 GB</text>
+  <!-- Route: nato -->
+  <rect x="255" y="260" width="210" height="230" rx="6" class="box"/>
+  <text x="360" y="282" text-anchor="middle" font-weight="bold" font-size="13" class="text-orange">nato</text>
+  <text x="360" y="300" text-anchor="middle" font-size="10" class="text-dim">NATO/defense doctrine</text>
 
-  <!-- Lookup route -->
-  <rect x="525" y="295" width="185" height="68" rx="5" class="box"/>
-  <text x="617" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">lookup</text>
-  <text x="617" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-9B</text>
-  <text x="617" y="349" text-anchor="middle" font-size="10" class="text-dim">Fast factual · top_k=20</text>
+  <rect x="270" y="312" width="180" height="22" rx="3" class="box-collection"/>
+  <text x="360" y="327" text-anchor="middle" font-size="10" class="text-green">Qdrant: nato</text>
 
-  <!-- General route -->
-  <rect x="725" y="295" width="185" height="68" rx="5" class="box"/>
-  <text x="817" y="316" text-anchor="middle" font-weight="600" font-size="12" class="text">general</text>
-  <text x="817" y="333" text-anchor="middle" font-size="10" class="text-dim">Qwen3.5-9B</text>
-  <text x="817" y="349" text-anchor="middle" font-size="10" class="text-dim">No RAG · 380ms</text>
+  <rect x="270" y="340" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="360" y="355" text-anchor="middle" font-size="10" class="text-dim">Postgres: nato chunks</text>
 
-  <!-- Secondary host services -->
-  <rect x="525" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="585" y="405" text-anchor="middle" font-size="11" class="text">Qdrant :6333</text>
-  <text x="585" y="418" text-anchor="middle" font-size="9" class="text-dim">documents</text>
+  <rect x="270" y="368" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="360" y="383" text-anchor="middle" font-size="10" class="text-dim">LLM :8080 Qwen3-32B</text>
 
-  <rect x="660" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="720" y="405" text-anchor="middle" font-size="11" class="text">Postgres :5432</text>
-  <text x="720" y="418" text-anchor="middle" font-size="9" class="text-dim">chunks</text>
+  <rect x="270" y="396" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="360" y="411" text-anchor="middle" font-size="9" class="text-dim">top_k=40, min_score=-5</text>
 
-  <rect x="795" y="385" width="120" height="40" rx="4" class="box-external"/>
-  <text x="855" y="405" text-anchor="middle" font-size="11" class="text">LLM :8080</text>
-  <text x="855" y="418" text-anchor="middle" font-size="9" class="text-dim">9B · CUDA</text>
+  <rect x="270" y="424" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="360" y="439" text-anchor="middle" font-size="9" class="text-dim">complex analysis queries</text>
 
-  <!-- Secondary label -->
-  <rect x="525" y="445" width="390" height="24" rx="3" class="label-bg"/>
-  <text x="720" y="461" text-anchor="middle" font-size="10" class="text-dim">ragpipe :8090 · independent stack · same corpus (4,831 chunks)</text>
+  <line x1="430" y1="214" x2="360" y2="260" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
 
-  <!-- Arrows: Router → secondary routes -->
-  <line x1="540" y1="204" x2="617" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
-  <line x1="580" y1="204" x2="817" y2="295" class="arrow-orange" stroke-width="1.5" marker-end="url(#aho)"/>
+  <!-- Route: mpep -->
+  <rect x="480" y="260" width="210" height="230" rx="6" class="box"/>
+  <text x="585" y="282" text-anchor="middle" font-weight="bold" font-size="13" class="text-pink">mpep</text>
+  <text x="585" y="300" text-anchor="middle" font-size="10" class="text-dim">USPTO patent examination</text>
 
-  <!-- Arrows: Lookup → Services -->
-  <line x1="617" y1="363" x2="585" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="617" y1="363" x2="720" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <line x1="617" y1="363" x2="855" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
-  <!-- General → LLM only (no RAG) -->
-  <line x1="817" y1="363" x2="855" y2="385" class="arrow-dim" stroke-width="1" marker-end="url(#ahd)"/>
+  <rect x="495" y="312" width="180" height="22" rx="3" class="box-collection"/>
+  <text x="585" y="327" text-anchor="middle" font-size="10" class="text-green">Qdrant: mpep</text>
 
-  <!-- Network arrow between hosts -->
-  <text x="480" y="500" text-anchor="middle" font-size="10" class="text-dim">home network · all ports accessible</text>
+  <rect x="495" y="340" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="585" y="355" text-anchor="middle" font-size="10" class="text-dim">Postgres: mpep chunks</text>
+
+  <rect x="495" y="368" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="585" y="383" text-anchor="middle" font-size="10" class="text-dim">LLM :8080 Qwen3-32B</text>
+
+  <rect x="495" y="396" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="585" y="411" text-anchor="middle" font-size="9" class="text-dim">top_k=40, CRAG enabled</text>
+
+  <rect x="495" y="424" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="585" y="439" text-anchor="middle" font-size="9" class="text-dim">F: 0.333 -> 0.933 (CRAG)</text>
+
+  <text x="585" y="475" text-anchor="middle" font-size="10" class="text-pink">F=0.933 (post-CRAG)</text>
+
+  <line x1="530" y1="214" x2="585" y2="260" class="arrow-pink" stroke-width="1.5" marker-end="url(#ahp)"/>
+
+  <!-- Route: documents -->
+  <rect x="705" y="260" width="210" height="230" rx="6" class="box"/>
+  <text x="810" y="282" text-anchor="middle" font-weight="bold" font-size="13" class="text-cyan">documents</text>
+  <text x="810" y="300" text-anchor="middle" font-size="10" class="text-dim">General knowledge base</text>
+
+  <rect x="720" y="312" width="180" height="22" rx="3" class="box-collection"/>
+  <text x="810" y="327" text-anchor="middle" font-size="10" class="text-green">Qdrant: documents</text>
+
+  <rect x="720" y="340" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="810" y="355" text-anchor="middle" font-size="10" class="text-dim">Postgres: documents chunks</text>
+
+  <rect x="720" y="368" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="810" y="383" text-anchor="middle" font-size="10" class="text-dim">LLM :8080 Qwen3-32B</text>
+
+  <rect x="720" y="396" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="810" y="411" text-anchor="middle" font-size="9" class="text-dim">top_k=20, fallback route</text>
+
+  <rect x="720" y="424" width="180" height="22" rx="3" class="label-bg"/>
+  <text x="810" y="439" text-anchor="middle" font-size="9" class="text-dim">below-threshold queries land here</text>
+
+  <line x1="580" y1="214" x2="810" y2="260" class="arrow-cyan" stroke-width="1.5" marker-end="url(#ahc)"/>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- Shared infrastructure -->
+
+  <rect x="30" y="510" width="885" height="60" rx="6" class="label-bg"/>
+  <text x="480" y="530" text-anchor="middle" font-weight="600" font-size="12" class="text">Shared infrastructure</text>
+  <text x="480" y="548" text-anchor="middle" font-size="10" class="text-dim">Qdrant :6333 (4 collections) | Postgres :5432 (asyncpg, chunks+titles) | LLM :8080 (Qwen3-32B Q4_K_M, ~19GB GTT)</text>
+  <text x="480" y="562" text-anchor="middle" font-size="10" class="text-dim">ONNX Runtime embedder (gte-modernbert-base) + reranker (MiniLM-L-6-v2) | MXR cache (6s warm start) | ragwatch :9090</text>
 
   <!-- Footer -->
-  <text x="480" y="540" text-anchor="middle" font-size="11" class="text-dim">Classification runs on host-a (&lt;1ms) · forwarding via persistent httpx connection pool</text>
-  <text x="480" y="558" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe · AGPL-3.0</text>
+  <text x="480" y="596" text-anchor="middle" font-size="11" class="text-dim">Classification &lt;1ms | CRAG retry on low confidence | citation v3: {id, title, source} | hot-reload routes without restart</text>
+  <text x="480" y="614" text-anchor="middle" font-size="10" class="text-dim">github.com/aclater/ragpipe, AGPL-3.0</text>
 </svg>
