@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload SBOM artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: sbom-${{ matrix.variant }}-${{ github.run_id }}
           path: sbom.spdx.json
@@ -121,7 +121,7 @@ jobs:
         run: |
           pip install --quiet . cyclonedx-bom
           cyclonedx-py environment -o sbom.json --output-format json
-      - uses: actions/upload-artifact@v7.0.0
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: sbom-cyclonedx
           path: sbom.json
