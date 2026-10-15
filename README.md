@@ -1,3 +1,5 @@
+> **Archived on 2026-10-15.** This repo is part of the original RAG suite (April 2026) and is no longer maintained. It has been superseded by a rebuild: **[aclater/rag](https://github.com/aclater/rag)**.
+
 # ragpipe
 
 RAG proxy with semantic routing, corpus-preferring grounding, and citation validation. Sits between your client and multiple LLMs, intercepts OpenAI-compatible chat completions, and enriches queries with retrieval-augmented context from Qdrant vector databases backed by Postgres document stores.
